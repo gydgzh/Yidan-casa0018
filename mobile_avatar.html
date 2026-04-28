@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<title>FaceMocap Mobile</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    background: #0a0a0c; color: #fff;
+    font: 13px/1.4 -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+    overflow: hidden;
+    -webkit-user-select: none; user-select: none;
+  }
+  #scene { position: fixed; inset: 0; z-index: 1; }
+  #scene canvas { display: block; width: 100%; height: 100%; }
+  #cam {
+    position: fixed;
+    bottom: max(12px, env(safe-area-inset-bottom));
+    right: 12px;
+    width: 96px; height: 128px;
+    object-fit: cover;
+    border-radius: 12px;
+    border: 1px solid rgba(255,255,255,.25);
+    transform: scaleX(-1);
+    z-index: 5;
+    background: #000;
+  }
+  #hud {
+    position: fixed;
+    top: max(12px, env(safe-area-inset-top));
+    left: 12px;
+    z-index: 10;
+    background: rgba(0,0,0,.55);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    padding: 10px 12px;
+    border-radius: 12px;
+    font: 11px/1.5 ui-monospace, Menlo, monospace;
+    max-width: 70vw;
+  }
+  #hud b { color: #6cf; }
+  #hud .ok { color: #6f6; } #hud .bad { color: #f66; } #hud .wait { color: #fc6; }
+  #action {
+    position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%);
+    z-index: 8; font-size: 64px; opacity: 0; pointer-events: none;
+    text-shadow: 0 4px 14px rgba(0,0,0,.7);
+    transition: opacity .15s;
+  }
+  #start {
+    position: fixed; inset: 0; z-index: 100;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    background: linear-gradient(160deg,#1a1a2e,#0a0a0c);
+    text-align: center; padding: 24px;
+  }
+  #start h1 { font-weight: 600; font-size: 22px; margin: 0 0 8px; }
+  #start p  { color: #aaa; margin: 0 0 24px; max-width: 320px; }
+  #start button {
+    appearance: none; border: none;
+    background: #4a8fff; color: white;
+    padding: 14px 36px; border-radius: 999px;
+    font-size: 16px; font-weight: 600;
+    box-shadow: 0 6px 24px rgba(74,143,255,.3);
+  }
+  #start button:active { background: #3a7cdf; }
+  #effects { position: fixed; inset: 0; pointer-events: none; z-index: 6; overflow: hidden; }
+  .particle {
+    position: absolute; font-size: 32px;
+    animation: fly 1.4s ease-out forwards;
+  }
+  @keyframes fly {
+    0%   { transform: translate(0,0) scale(.4); opacity: 0; }
+    20%  { transform: translate(0,0) scale(1.0); opacity: 1; }
+    100% { transform: translate(var(--dx),var(--dy)) scale(.6); opacity: 0; }
+  }
+</style>
+</head>
+<body>
+
+<div id="scene"></div>
+<video id="cam" autoplay muted playsinline webkit-playsinline></video>
+<div id="effects"></div>
+<div id="action"></div>
+
+<div id="hud">
+  <div>cam: <span id="s-cam" class="wait">init</span> · mp: <span id="s-mp" class="wait">init</span></div>
+  <div>avatar: <span id="s-av" class="wait">load</span> · action: <span id="s-ac" class="wait">load</span></div>
+  <div>fps: <b id="s-fps">0</b> · frames: <b id="s-fr">0</b></div>
+  <div>last bs: <span id="s-bs">-</span></div>
+  <div>action: <b id="s-act">-</b> conf: <span id="s-conf">-</span></div>
+</div>
+
+<div id="start">
+  <h1>FaceMocap Mobile</h1>
+  <p>基于 ARKit/MediaPipe 面捕 + 自训 1D-CNN 动作识别 + Three.js 实时渲染。授予摄像头权限后即可开始。</p>
+  <button id="btn-go">允许摄像头并开始</button>
+  <p style="margin-top:24px;font-size:11px;opacity:.55">所有计算在你设备上完成，无数据上传。</p>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { FilesetResolver, FaceLandmarker } from
+  'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.9/vision_bundle.mjs';
+
+// ====== CONFIG ======
+// Default Ready Player Me realistic female avatar (free demo).
+// Swap with your own from https://readyplayer.me/avatar
+const AVATAR_URL = new URLSearchParams(location.search).get('avatar')
+  || 'https://models.readyplayer.me/64bfa9f0e2c0e9d0a8a0a8b1.glb?morphTargets=ARKit&textureAtlas=1024&pose=A';
+
+// Optional TFJS LSTM action model — set to your hosted path or ./models/action_model
+const ACTION_MODEL_URL = new URLSearchParams(location.search).get('action')
+  || './models/action_model/model.json';
+const ACTION_LABELS = ['neutral','wink_left','wink_right','smile_big',
+                       'surprise','frown','mouth_o','tongue_out'];
+const ACTION_EMOJI  = ['','😉←','😉→','😄','😮','☹️','😯','😝'];
+// Threshold + cooldown
+const CONF_THRESHOLD = 0.5;
+const COOLDOWN_MS = 500;
+const VOTE_WINDOW = 2;
+const WINDOW_LEN = 30;
+
+// ====== STATE ======
+const stats = {
+  cam:'init', mp:'init', avatar:'wait', action:'wait',
+  fps:0, frames:0, lastBs:'-', lastAction:'-', lastConf:'-'
+};
+const $ = (id)=>document.getElementById(id);
+function paint() {
+  $('s-cam').textContent = stats.cam; $('s-cam').className = stats.cam==='ok'?'ok':(stats.cam==='fail'?'bad':'wait');
+  $('s-mp').textContent  = stats.mp;  $('s-mp').className  = stats.mp==='ok'?'ok':(stats.mp==='fail'?'bad':'wait');
+  $('s-av').textContent  = stats.avatar; $('s-av').className= stats.avatar==='ok'?'ok':(stats.avatar==='fail'?'bad':'wait');
+  $('s-ac').textContent  = stats.action; $('s-ac').className= stats.action==='ok'?'ok':(stats.action==='off'?'wait':'bad');
+  $('s-fps').textContent = stats.fps;
+  $('s-fr').textContent  = stats.frames;
+  $('s-bs').textContent  = stats.lastBs;
+  $('s-act').textContent = stats.lastAction;
+  $('s-conf').textContent= stats.lastConf;
+}
+setInterval(paint, 250);
+
+// ====== THREE.js scene ======
+const sceneEl = $('scene');
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+sceneEl.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color('#1a1a2e');
+const camera = new THREE.PerspectiveCamera(28, window.innerWidth/window.innerHeight, 0.1, 100);
+camera.position.set(0, 1.55, 1.3);
+camera.lookAt(0, 1.55, 0);
+
+// IBL for skin shading
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+
+// fill light
+const dir = new THREE.DirectionalLight(0xffffff, 1.4);
+dir.position.set(1.5, 2.5, 1.5); scene.add(dir);
+const amb = new THREE.AmbientLight(0xffffff, 0.4); scene.add(amb);
+const rim = new THREE.DirectionalLight(0x88aaff, 0.6);
+rim.position.set(-1.5, 1.5, -1.5); scene.add(rim);
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth/window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// ====== avatar loader ======
+const ARKIT_KEYS = [
+  'browDownLeft','browDownRight','browInnerUp','browOuterUpLeft','browOuterUpRight',
+  'cheekPuff','cheekSquintLeft','cheekSquintRight',
+  'eyeBlinkLeft','eyeBlinkRight',
+  'eyeLookDownLeft','eyeLookDownRight','eyeLookInLeft','eyeLookInRight',
+  'eyeLookOutLeft','eyeLookOutRight','eyeLookUpLeft','eyeLookUpRight',
+  'eyeSquintLeft','eyeSquintRight','eyeWideLeft','eyeWideRight',
+  'jawForward','jawLeft','jawOpen','jawRight',
+  'mouthClose','mouthDimpleLeft','mouthDimpleRight',
+  'mouthFrownLeft','mouthFrownRight','mouthFunnel',
+  'mouthLeft','mouthLowerDownLeft','mouthLowerDownRight',
+  'mouthPressLeft','mouthPressRight','mouthPucker','mouthRight',
+  'mouthRollLower','mouthRollUpper','mouthShrugLower','mouthShrugUpper',
+  'mouthSmileLeft','mouthSmileRight','mouthStretchLeft','mouthStretchRight',
+  'mouthUpperUpLeft','mouthUpperUpRight',
+  'noseSneerLeft','noseSneerRight','tongueOut'
+];
+let morphTargets = []; // [{mesh, dict}]
+let headBone = null;
+
+async function loadAvatar() {
+  const loader = new GLTFLoader();
+  return new Promise((resolve, reject) => {
+    loader.load(AVATAR_URL, (gltf) => {
+      const root = gltf.scene;
+      root.traverse(o => {
+        if (o.isMesh && o.morphTargetDictionary) {
+          morphTargets.push({ mesh:o, dict:o.morphTargetDictionary });
+        }
+        if (o.isBone && /head/i.test(o.name)) headBone = o;
+      });
+      // RPM faces +Z, we want them facing the camera (+Z toward camera)
+      root.position.set(0, 0, 0);
+      scene.add(root);
+      stats.avatar = morphTargets.length ? 'ok' : 'no-morphs';
+      resolve();
+    }, undefined, (err) => {
+      stats.avatar = 'fail';
+      console.error('avatar load fail', err);
+      reject(err);
+    });
+  });
+}
+
+function applyBlendshapes(bs) {
+  for (const { mesh, dict } of morphTargets) {
+    for (const k of ARKIT_KEYS) {
+      const i = dict[k]; if (i == null) continue;
+      const v = bs[k]; if (v == null) continue;
+      mesh.morphTargetInfluences[i] = v;
+    }
+  }
+}
+
+// ====== MediaPipe ======
+let landmarker = null;
+async function initMP() {
+  const fileset = await FilesetResolver.forVisionTasks(
+    'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.9/wasm');
+  landmarker = await FaceLandmarker.createFromOptions(fileset, {
+    baseOptions: {
+      modelAssetPath:
+        'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
+      delegate: 'GPU'
+    },
+    outputFaceBlendshapes: true,
+    outputFacialTransformationMatrixes: true,
+    runningMode: 'VIDEO',
+    numFaces: 1
+  });
+  stats.mp = 'ok';
+}
+
+// ====== camera ======
+const video = $('cam');
+async function initCamera() {
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video: { facingMode: 'user', width: 640, height: 480 },
+    audio: false
+  });
+  video.srcObject = stream;
+  await new Promise(r => video.onloadedmetadata = r);
+  await video.play();
+  stats.cam = 'ok';
+}
+
+// ====== particle effects ======
+function spawnEffect(label) {
+  const idx = ACTION_LABELS.indexOf(label);
+  if (idx <= 0) return;
+  const emoji = ACTION_EMOJI[idx] || '✨';
+  // big center flash
+  const big = $('action');
+  big.textContent = emoji;
+  big.style.opacity = 1;
+  setTimeout(() => big.style.opacity = 0, 600);
+  // particles
+  const layer = $('effects');
+  for (let i = 0; i < 8; i++) {
+    const p = document.createElement('div');
+    p.className = 'particle';
+    p.textContent = emoji;
+    p.style.left = (50 + (Math.random()*40-20)) + 'vw';
+    p.style.top  = (50 + (Math.random()*30-15)) + 'vh';
+    p.style.setProperty('--dx', (Math.random()*200-100) + 'px');
+    p.style.setProperty('--dy', (-200 - Math.random()*200) + 'px');
+    layer.appendChild(p);
+    setTimeout(() => p.remove(), 1500);
+  }
+}
+
+// ====== action recognition (LSTM, optional) ======
+let actionModel = null;
+const window30 = []; // ring buffer of 52-d arrays
+let voteHistory = []; let lastTriggerAt = 0;
+
+async function initAction() {
+  try {
+    if (!window.tf) {
+      await new Promise((res, rej) => {
+        const s = document.createElement('script');
+        s.src = 'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js';
+        s.onload = res; s.onerror = rej; document.head.appendChild(s);
+      });
+    }
+    actionModel = await tf.loadLayersModel(ACTION_MODEL_URL);
+    stats.action = 'ok';
+  } catch (e) {
+    console.warn('action model not loaded — running without it', e);
+    stats.action = 'off';
+  }
+}
+
+let inferEvery = 6, inferTick = 0;
+async function maybeInfer(bs) {
+  if (!actionModel) return;
+  const row = ARKIT_KEYS.map(k => bs[k] ?? 0);
+  window30.push(row);
+  if (window30.length > WINDOW_LEN) window30.shift();
+  if (window30.length < WINDOW_LEN) return;
+  if (++inferTick % inferEvery !== 0) return;
+  const x = tf.tensor3d([window30]);
+  const y = actionModel.predict(x);
+  const data = await y.data();
+  x.dispose(); y.dispose();
+  let bestI = 0, bestV = 0;
+  for (let i = 0; i < data.length; i++) if (data[i] > bestV) { bestV = data[i]; bestI = i; }
+  const label = ACTION_LABELS[bestI] || '?';
+  stats.lastAction = label; stats.lastConf = bestV.toFixed(2);
+  voteHistory.push(label);
+  if (voteHistory.length > VOTE_WINDOW) voteHistory.shift();
+  const allSame = voteHistory.length === VOTE_WINDOW
+                  && voteHistory.every(x => x === label);
+  const now = performance.now();
+  if (allSame && bestV > CONF_THRESHOLD && now - lastTriggerAt > COOLDOWN_MS
+      && label !== 'neutral') {
+    lastTriggerAt = now;
+    spawnEffect(label);
+  }
+}
+
+// ====== main loop ======
+let lastTs = -1, frameStart = performance.now(), frameCount = 0;
+async function loop() {
+  if (video.readyState >= 2 && landmarker) {
+    const ts = performance.now();
+    if (ts !== lastTs) {
+      const r = landmarker.detectForVideo(video, ts);
+      lastTs = ts;
+      if (r.faceBlendshapes && r.faceBlendshapes.length) {
+        const cats = r.faceBlendshapes[0].categories;
+        const bs = {};
+        for (const c of cats) bs[c.categoryName] = c.score;
+        applyBlendshapes(bs);
+        stats.frames++;
+        const ks = Object.keys(bs);
+        stats.lastBs = ks.slice(0,3).join(',');
+        await maybeInfer(bs);
+        // head pose from facial transformation matrix
+        if (headBone && r.facialTransformationMatrixes && r.facialTransformationMatrixes[0]) {
+          const m = r.facialTransformationMatrixes[0].data;
+          const mat = new THREE.Matrix4().fromArray(m);
+          const q = new THREE.Quaternion().setFromRotationMatrix(mat);
+          headBone.quaternion.slerp(q, 0.5);
+        }
+      }
+      frameCount++;
+      const now = performance.now();
+      if (now - frameStart > 1000) {
+        stats.fps = frameCount;
+        frameCount = 0;
+        frameStart = now;
+      }
+    }
+  }
+  renderer.render(scene, camera);
+  requestAnimationFrame(loop);
+}
+
+// ====== boot ======
+$('btn-go').addEventListener('click', async () => {
+  $('btn-go').textContent = '初始化中…';
+  $('btn-go').disabled = true;
+  try {
+    await initCamera();
+    await Promise.all([initMP(), loadAvatar(), initAction()]);
+    $('start').style.display = 'none';
+    requestAnimationFrame(loop);
+  } catch (e) {
+    alert('启动失败：' + (e.message || e));
+    console.error(e);
+    $('btn-go').textContent = '重试';
+    $('btn-go').disabled = false;
+  }
+});
+</script>
+</body>
+</html>

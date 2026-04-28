@@ -489,73 +489,109 @@ async function initAction() {
 }
 
 let inferEvery = 6, inferTick = 0;
-async function maybeInfer(bs) {
-  if (!actionModel) return;
+let inferBusy = false;            // guard against concurrent predictions
+let inferErrorCount = 0;          // disable model if it keeps failing
+
+function maybeInfer(bs) {
+  if (!actionModel || inferBusy) return;
   const row = ARKIT_KEYS.map(k => bs[k] ?? 0);
   window30.push(row);
   if (window30.length > WINDOW_LEN) window30.shift();
   if (window30.length < WINDOW_LEN) return;
   if (++inferTick % inferEvery !== 0) return;
-  const x = tf.tensor3d([window30]);
-  const y = actionModel.predict(x);
-  const data = await y.data();
-  x.dispose(); y.dispose();
-  let bestI = 0, bestV = 0;
-  for (let i = 0; i < data.length; i++) if (data[i] > bestV) { bestV = data[i]; bestI = i; }
-  const label = ACTION_LABELS[bestI] || '?';
-  stats.lastAction = label; stats.lastConf = bestV.toFixed(2);
-  voteHistory.push(label);
-  if (voteHistory.length > VOTE_WINDOW) voteHistory.shift();
-  const allSame = voteHistory.length === VOTE_WINDOW
-                  && voteHistory.every(x => x === label);
-  const now = performance.now();
-  if (allSame && bestV > CONF_THRESHOLD && now - lastTriggerAt > COOLDOWN_MS
-      && label !== 'neutral') {
-    lastTriggerAt = now;
-    spawnEffect(label);
+
+  inferBusy = true;
+  try {
+    // tf.tidy guarantees every tensor created inside is disposed.
+    // dataSync() returns a TypedArray (not a tensor) so it's safe to leak out.
+    const data = tf.tidy(() => {
+      const x = tf.tensor3d([window30]);
+      let y = actionModel.predict(x);
+      if (Array.isArray(y)) y = y[0];
+      return y.dataSync();
+    });
+    let bestI = 0, bestV = 0;
+    for (let i = 0; i < data.length; i++) if (data[i] > bestV) { bestV = data[i]; bestI = i; }
+    const label = ACTION_LABELS[bestI] || '?';
+    stats.lastAction = label; stats.lastConf = bestV.toFixed(2);
+    voteHistory.push(label);
+    if (voteHistory.length > VOTE_WINDOW) voteHistory.shift();
+    const allSame = voteHistory.length === VOTE_WINDOW
+                    && voteHistory.every(x => x === label);
+    const now = performance.now();
+    if (allSame && bestV > CONF_THRESHOLD && now - lastTriggerAt > COOLDOWN_MS
+        && label !== 'neutral') {
+      lastTriggerAt = now;
+      spawnEffect(label);
+    }
+  } catch (e) {
+    inferErrorCount++;
+    log(`infer err #${inferErrorCount}: ${e.message||e}`, 'err');
+    if (inferErrorCount > 5) {
+      log('too many infer errors → disabling action model', 'err');
+      actionModel = null;
+      stats.action = 'off';
+    }
+  } finally {
+    inferBusy = false;
   }
 }
 
 // ====== main loop ======
-let lastTs = -1, frameStart = performance.now(), frameCount = 0;
+let lastTs = 0, frameStart = performance.now(), frameCount = 0;
+let lastSuccessfulFrame = performance.now();
+let loopErrorCount = 0;
 function fakeAnimate() {
-  // when no camera/MP, just rotate the proxy head so we can SEE it
   if (proxyHead) {
     proxyHead.group.rotation.y = Math.sin(performance.now()/1000) * 0.3;
   }
 }
-async function loop() {
-  if (!FLAG_NOCAM && video.readyState >= 2 && landmarker) {
-    const ts = performance.now();
-    if (ts !== lastTs) {
-      const r = landmarker.detectForVideo(video, ts);
+
+function loop() {
+  // SAFETY: every path through this function MUST end by scheduling the next RAF.
+  // One unhandled exception inside the body used to silently kill the loop and
+  // freeze the avatar after a few seconds. Now we wrap and always schedule.
+  try {
+    if (!FLAG_NOCAM && video.readyState >= 2 && landmarker && !video.paused) {
+      // MediaPipe needs a strictly-increasing INTEGER timestamp.
+      const ts = Math.max(lastTs + 1, Math.floor(performance.now()));
       lastTs = ts;
-      if (r.faceBlendshapes && r.faceBlendshapes.length) {
+      let r = null;
+      try {
+        r = landmarker.detectForVideo(video, ts);
+      } catch (e) {
+        loopErrorCount++;
+        log(`detectForVideo err #${loopErrorCount}: ${e.message||e}`, 'err');
+      }
+      if (r && r.faceBlendshapes && r.faceBlendshapes.length) {
         const cats = r.faceBlendshapes[0].categories;
         const bs = {};
         for (const c of cats) bs[c.categoryName] = c.score;
-        applyBlendshapes(bs);
+        try { applyBlendshapes(bs); }
+        catch (e) { log('applyBs err: ' + e.message, 'err'); }
         stats.frames++;
+        lastSuccessfulFrame = performance.now();
         const ks = Object.keys(bs);
         stats.lastBs = ks.slice(0,3).join(',');
-        await maybeInfer(bs);
+        // fire-and-forget — never await inside RAF, never let infer kill the loop
+        try { maybeInfer(bs); }
+        catch (e) { log('infer-outer err: ' + e.message, 'err'); }
+        // head pose
         if (r.facialTransformationMatrixes && r.facialTransformationMatrixes[0]) {
-          const m = r.facialTransformationMatrixes[0].data;
-          const mat = new THREE.Matrix4().fromArray(m);
-          const targetQ = new THREE.Quaternion().setFromRotationMatrix(mat);
-          // Optional axis flips for "mirror" feel: ?headflip=y inverts yaw
-          if (HEAD_FLIP) {
-            const e = new THREE.Euler().setFromQuaternion(targetQ, 'YXZ');
-            if (HEAD_FLIP.includes('x')) e.x = -e.x;
-            if (HEAD_FLIP.includes('y')) e.y = -e.y;
-            if (HEAD_FLIP.includes('z')) e.z = -e.z;
-            targetQ.setFromEuler(e);
-          }
-          if (headBone) {
-            headBone.quaternion.slerp(targetQ, HEAD_LERP);
-          } else if (proxyHead) {
-            proxyHead.group.quaternion.slerp(targetQ, HEAD_LERP);
-          }
+          try {
+            const m = r.facialTransformationMatrixes[0].data;
+            const mat = new THREE.Matrix4().fromArray(m);
+            const targetQ = new THREE.Quaternion().setFromRotationMatrix(mat);
+            if (HEAD_FLIP) {
+              const e = new THREE.Euler().setFromQuaternion(targetQ, 'YXZ');
+              if (HEAD_FLIP.includes('x')) e.x = -e.x;
+              if (HEAD_FLIP.includes('y')) e.y = -e.y;
+              if (HEAD_FLIP.includes('z')) e.z = -e.z;
+              targetQ.setFromEuler(e);
+            }
+            if (headBone) headBone.quaternion.slerp(targetQ, HEAD_LERP);
+            else if (proxyHead) proxyHead.group.quaternion.slerp(targetQ, HEAD_LERP);
+          } catch (e) { log('headpose err: ' + e.message, 'err'); }
         }
       }
       frameCount++;
@@ -563,13 +599,31 @@ async function loop() {
       if (now - frameStart > 1000) {
         stats.fps = frameCount; frameCount = 0; frameStart = now;
       }
+      // watchdog: face frames stalled for 3s → try to wake video
+      if (now - lastSuccessfulFrame > 3000 && stats.frames > 0) {
+        log('watchdog: no face frames for 3s — attempting recovery', 'err');
+        lastSuccessfulFrame = now; // throttle the warning
+        if (video.paused) video.play().catch(()=>{});
+      }
+    } else {
+      fakeAnimate();
     }
-  } else {
-    fakeAnimate();
+    renderer.render(scene, camera);
+  } catch (e) {
+    loopErrorCount++;
+    log(`loop err #${loopErrorCount}: ${e.message||e}`, 'err');
   }
-  renderer.render(scene, camera);
+  // ALWAYS schedule the next frame, regardless of any error above.
   requestAnimationFrame(loop);
 }
+
+// Resume video stream when tab becomes visible again.
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && video && video.paused) {
+    log('tab visible → resuming video');
+    video.play().catch(e => log('video.play() rejected: ' + e.message, 'err'));
+  }
+});
 
 // ====== boot ======
 $('btn-go').addEventListener('click', async () => {

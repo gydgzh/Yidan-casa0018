@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<title>Record action sessions (MediaPipe → JSON)</title>
+<style>
+  body { margin:0; background:#111; color:#eee; font:14px/1.45 ui-monospace,Menlo,monospace; }
+  #wrap { padding:16px; display:flex; gap:24px; align-items:flex-start; flex-wrap:wrap; }
+  video { width:360px; border-radius:8px; display:block; background:#000; }
+  button { padding:8px 14px; cursor:pointer; }
+  .row { display:flex; gap:12px; align-items:center; margin-top:10px; flex-wrap:wrap; }
+  #panel { width:520px; }
+  #log { white-space:pre-wrap; background:#000; padding:8px; border-radius:6px;
+         height:280px; overflow:auto; font-size:12px; }
+  select, input { font: inherit; padding:5px 8px; background:#222; color:#eee; border:1px solid #444; border-radius:4px; }
+  .recording { color:#ff6b6b; font-weight:700; }
+  .ready     { color:#7ee787; }
+  .badge     { padding:2px 8px; border-radius:10px; background:#222; }
+  .help      { color:#9ba; font-size:12px; line-height:1.5; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div>
+    <video id="v" autoplay muted playsinline></video>
+    <div class="row">
+      <button id="start">① Start camera + MediaPipe</button>
+      <span id="mpStatus" class="badge">…</span>
+    </div>
+  </div>
+
+  <div id="panel">
+    <div class="row">
+      <label>动作类别:
+        <select id="label">
+          <option>neutral</option>
+          <option>wink_left</option>
+          <option>wink_right</option>
+          <option>smile_big</option>
+          <option>surprise</option>
+          <option>frown</option>
+          <option>mouth_o</option>
+          <option>tongue_out</option>
+        </select>
+      </label>
+      <label>subject_id:
+        <input id="subject" value="yidan" size="10" />
+      </label>
+      <label>录制时长(秒):
+        <input id="duration" type="number" value="2.0" step="0.5" min="0.5" max="5" size="3" />
+      </label>
+    </div>
+    <div class="row">
+      <button id="rec">② 按这个录制(或按空格键)</button>
+      <span id="recStatus" class="badge ready">idle</span>
+      <span id="cnt" class="badge">已录: 0</span>
+      <button id="dl">③ 下载已录的全部 (.zip)</button>
+      <button id="clear">清空</button>
+    </div>
+    <p class="help">
+      流程:① 打开摄像头 → 选类别 → 按 ②/空格 录一段(2 秒) → 重复直到每类 ≥10 段 → ③ 下载 .zip,
+      解压到 <code>action_recognition/data/</code> 即可拿去 train.py。
+    </p>
+    <pre id="log"></pre>
+  </div>
+</div>
+
+<script type="module">
+import {
+  FilesetResolver, FaceLandmarker
+} from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.18/vision_bundle.mjs";
+
+const $log = (...a) => {
+  const el = document.getElementById("log");
+  el.textContent += a.map(x => typeof x === "string" ? x : JSON.stringify(x)).join(" ") + "\n";
+  el.scrollTop = el.scrollHeight;
+};
+
+const sessions = [];   // 已录的所有 session: {label, subject_id, fps_target, frames}
+const $cnt = document.getElementById("cnt");
+const $recStatus = document.getElementById("recStatus");
+const $mpStatus  = document.getElementById("mpStatus");
+const $label     = document.getElementById("label");
+const $subject   = document.getElementById("subject");
+const $duration  = document.getElementById("duration");
+
+let landmarker = null;
+let recording = false;
+let currentFrames = null;
+let recStartT = 0;
+let recStopT = 0;
+
+function updateCount() {
+  const counts = {};
+  for (const s of sessions) counts[s.label] = (counts[s.label] || 0) + 1;
+  const parts = Object.entries(counts).map(([k, v]) => `${k}:${v}`).join("  ");
+  $cnt.textContent = `已录: ${sessions.length}  [${parts || "—"}]`;
+}
+
+document.getElementById("start").onclick = async () => {
+  const v = document.getElementById("v");
+  const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
+  v.srcObject = stream;
+  await v.play();
+
+  $log("[mp] loading wasm + face_landmarker.task …");
+  $mpStatus.textContent = "loading";
+  const vision = await FilesetResolver.forVisionTasks(
+    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.18/wasm");
+  // 优先用同目录下的本地模型(需要 npx serve action_recognition/ 或者复制到 web_browser_fallback/public/);
+  // fallback 到 Google CDN。
+  let modelPath = "/face_landmarker.task";
+  try {
+    const probe = await fetch(modelPath, { method: "HEAD" });
+    if (!probe.ok) throw new Error();
+  } catch {
+    modelPath = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
+  }
+  landmarker = await FaceLandmarker.createFromOptions(vision, {
+    baseOptions: { modelAssetPath: modelPath },
+    runningMode: "VIDEO",
+    numFaces: 1,
+    outputFaceBlendshapes: true,
+    outputFacialTransformationMatrixes: false,
+  });
+  $mpStatus.textContent = "ready";
+  $mpStatus.className = "badge ready";
+  $log("[mp] ready,可以开始录制");
+
+  // 渲染循环 + 录制
+  const tick = () => {
+    if (v.readyState >= 2) {
+      const t = performance.now();
+      const r = landmarker.detectForVideo(v, t);
+      const cats = r.faceBlendshapes?.[0]?.categories || [];
+      if (recording && cats.length) {
+        const bs = {};
+        for (const c of cats) bs[c.categoryName] = c.score;
+        currentFrames.push({ ts: (t - recStartT) / 1000, blendshapes: bs });
+        if (t >= recStopT) finishRecording();
+      }
+    }
+    requestAnimationFrame(tick);
+  };
+  tick();
+};
+
+function startRecording() {
+  if (!landmarker) { $log("先点 Start camera"); return; }
+  if (recording) return;
+  recording = true;
+  currentFrames = [];
+  recStartT = performance.now();
+  const dur = Math.max(0.5, Math.min(5, parseFloat($duration.value) || 2));
+  recStopT = recStartT + dur * 1000;
+  $recStatus.textContent = "REC ●";
+  $recStatus.className   = "badge recording";
+  $log(`[rec] ${$label.value}  duration=${dur}s …`);
+}
+
+function finishRecording() {
+  recording = false;
+  const session = {
+    version: 1,
+    label: $label.value,
+    subject_id: $subject.value || "anon",
+    fps_target: 30,
+    frames: currentFrames,
+    recorded_at: new Date().toISOString(),
+  };
+  sessions.push(session);
+  updateCount();
+  $recStatus.textContent = "saved";
+  $recStatus.className   = "badge ready";
+  $log(`[rec] ✓ ${session.label}  frames=${session.frames.length}  total=${sessions.length}`);
+}
+
+document.getElementById("rec").onclick = startRecording;
+document.addEventListener("keydown", (e) => {
+  if (e.code === "Space" && document.activeElement.tagName !== "INPUT") {
+    e.preventDefault(); startRecording();
+  }
+});
+
+document.getElementById("clear").onclick = () => {
+  if (!confirm(`清空已录的 ${sessions.length} 个 session?`)) return;
+  sessions.length = 0; updateCount(); $log("[ui] 已清空");
+};
+
+document.getElementById("dl").onclick = async () => {
+  if (!sessions.length) { $log("还没录任何 session"); return; }
+  // 不引第三方 zip 库,用浏览器原生 ZIP-via-Blob 不容易,改成多文件下载 fallback 一个 .json 数组。
+  // 简单方案:打成一个大 JSON,本地用 split_jsonl.py 拆分。
+  const blob = new Blob([JSON.stringify(sessions, null, 0)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  const ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+  a.href = url; a.download = `sessions_${$subject.value || "anon"}_${ts}.json`;
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 100);
+  $log(`[dl] 已下载 ${sessions.length} 个 session 到 ${a.download}`);
+  $log(`     现在跑:  python action_recognition/split_jsonl.py <下载的文件> action_recognition/data/`);
+};
+
+updateCount();
+</script>
+</body>
+</html>

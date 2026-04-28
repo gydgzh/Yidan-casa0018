@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>MediaPipe → ARKit blendshape sender</title>
+<style>
+  body{margin:0;background:#111;color:#eee;font:13px ui-monospace,Menlo,monospace;}
+  video{width:320px;border-radius:6px;display:block;}
+  #wrap{padding:16px;display:flex;gap:24px;align-items:flex-start;}
+  #log{white-space:pre-wrap;background:#000;padding:8px;border-radius:6px;
+       width:520px;height:380px;overflow:auto;}
+  button{padding:6px 12px;}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div>
+    <video id="v" autoplay muted playsinline></video>
+    <div style="margin-top:8px;">
+      <button id="start">Start camera + MediaPipe</button>
+    </div>
+    <div style="margin-top:8px;font-size:12px;opacity:.7;">
+      首次启动会下载 face_landmarker.task(~3MB)。<br/>
+      推送到 ws://localhost:8765(relay_server)。
+    </div>
+  </div>
+  <pre id="log"></pre>
+</div>
+
+<!-- 单文件 demo:用 ESM CDN,无需打包 -->
+<script type="module">
+import {
+  FilesetResolver, FaceLandmarker
+} from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.18/vision_bundle.mjs";
+
+const log = (...a) => {
+  const el = document.getElementById("log");
+  el.textContent += a.map(x => typeof x === "string" ? x : JSON.stringify(x)).join(" ") + "\n";
+  el.scrollTop = el.scrollHeight;
+};
+
+const RELAY_URL = `ws://${location.hostname || "localhost"}:8765`;
+let ws = null;
+function ensureWS() {
+  if (ws && ws.readyState <= 1) return ws;
+  ws = new WebSocket(RELAY_URL);
+  ws.onopen  = () => { ws.send(JSON.stringify({ role: "sender" })); log("[ws] open ->", RELAY_URL); };
+  ws.onerror = (e) => log("[ws] error", e?.message || "");
+  ws.onclose = () => log("[ws] closed");
+  return ws;
+}
+
+document.getElementById("start").onclick = async () => {
+  const v = document.getElementById("v");
+  const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
+  v.srcObject = stream;
+  await v.play();
+
+  log("[mp] loading wasm + model …");
+  const vision = await FilesetResolver.forVisionTasks(
+    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.18/wasm");
+  const fl = await FaceLandmarker.createFromOptions(vision, {
+    baseOptions: {
+      // 用本地 public 文件;如果不存在,fallback 到 Google CDN
+      modelAssetPath: "/face_landmarker.task"
+    },
+    runningMode: "VIDEO",
+    numFaces: 1,
+    outputFaceBlendshapes: true,
+    outputFacialTransformationMatrixes: true
+  });
+  log("[mp] ready");
+  ensureWS();
+
+  let lastTs = 0, sent = 0;
+  const tick = () => {
+    if (v.readyState >= 2) {
+      const t = performance.now();
+      const r = fl.detectForVideo(v, t);
+      const cats = r.faceBlendshapes?.[0]?.categories || [];
+      const mats = r.facialTransformationMatrixes?.[0]?.data;
+      if (cats.length && mats) {
+        const bs = {};
+        // MediaPipe 的 categoryName 已经是 ARKit 命名(jawOpen, mouthSmileLeft, ...)
+        for (const c of cats) bs[c.categoryName] = c.score;
+        const payload = {
+          ts: t / 1000,
+          blendshapes: bs,
+          head: Array.from(mats),
+          leftEye:  new Array(16).fill(0),
+          rightEye: new Array(16).fill(0)
+        };
+        if (ensureWS().readyState === 1) {
+          ensureWS().send(JSON.stringify(payload));
+          sent++;
+          if (t - lastTs > 1000) {
+            log(`[mp] ${sent} fps  blendshapes=${cats.length}`);
+            sent = 0; lastTs = t;
+          }
+        }
+      }
+    }
+    requestAnimationFrame(tick);
+  };
+  tick();
+};
+</script>
+</body>
+</html>

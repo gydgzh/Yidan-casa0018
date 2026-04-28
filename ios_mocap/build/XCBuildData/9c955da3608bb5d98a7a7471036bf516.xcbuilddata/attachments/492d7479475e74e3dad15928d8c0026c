@@ -1,0 +1,49 @@
+{
+  "" : {
+    "diagnostics" : "/Users/yimisheng/Desktop/AAAucl-2025/T2_1_ucl/casa0018DeepLearning/DLLLL1/ios_mocap/build/FaceMocap.build/Debug-iphoneos/FaceMocap.build/Objects-normal/arm64/FaceMocap-primary.dia",
+    "emit-module-dependencies" : "/Users/yimisheng/Desktop/AAAucl-2025/T2_1_ucl/casa0018DeepLearning/DLLLL1/ios_mocap/build/FaceMocap.build/Debug-iphoneos/FaceMocap.build/Objects-normal/arm64/FaceMocap-primary-emit-module.d",
+    "emit-module-diagnostics" : "/Users/yimisheng/Desktop/AAAucl-2025/T2_1_ucl/casa0018DeepLearning/DLLLL1/ios_mocap/build/FaceMocap.build/Debug-iphoneos/FaceMocap.build/Objects-normal/arm64/FaceMocap-primary-emit-module.dia",
+    "pch" : "/Users/yimisheng/Desktop/AAAucl-2025/T2_1_ucl/casa0018DeepLearning/DLLLL1/ios_mocap/build/FaceMocap.build/Debug-iphoneos/FaceMocap.build/Objects-normal/arm64/FaceMocap-primary-Bridging-header.pch",
+    "swift-dependencies" : "/Users/yimisheng/Desktop/AAAucl-2025/T2_1_ucl/casa0018DeepLearning/DLLLL1/ios_mocap/build/FaceMocap.build/Debug-iphoneos/FaceMocap.build/Objects-normal/arm64/FaceMocap-primary.swiftdeps"
+  },
+  "/Users/yimisheng/Desktop/AAAucl-2025/T2_1_ucl/casa0018DeepLearning/DLLLL1/ios_mocap/FaceMocap/ContentView.swift" : {
+    "const-values" : "/Users/yimisheng/Desktop/AAAucl-2025/T2_1_ucl/casa0018DeepLearning/DLLLL1/ios_mocap/build/FaceMocap.build/Debug-iphoneos/FaceMocap.build/Objects-normal/arm64/ContentView.swiftconstvalues",
+    "dependencies" : "/Users/yimisheng/Desktop/AAAucl-2025/T2_1_ucl/casa0018DeepLearning/DLLLL1/ios_mocap/build/FaceMocap.build/Debug-iphoneos/FaceMocap.build/Objects-normal/arm64/ContentView.d",
+    "diagnostics" : "/Users/yimisheng/Desktop/AAAucl-2025/T2_1_ucl/casa0018DeepLearning/DLLLL1/ios_mocap/build/FaceMocap.build/Debug-iphoneos/FaceMocap.build/Objects-normal/arm64/ContentView.dia",
+    "index-unit-output-path" : "/FaceMocap.build/Debug-iphoneos/FaceMocap.build/Objects-normal/arm64/ContentView.o",
+    "llvm-bc" : "/Users/yimisheng/Desktop/AAAucl-2025/T2_1_ucl/casa0018DeepLearning/DLLLL1/ios_mocap/build/FaceMocap.build/Debug-iphoneos/FaceMocap.build/Objects-normal/arm64/ContentView.bc",
+    "object" : "/Users/yimisheng/Desktop/AAAucl-2025/T2_1_ucl/casa0018DeepLearning/DLLLL1/ios_mocap/build/FaceMocap.build/Debug-iphoneos/FaceMocap.build/Objects-normal/arm64/ContentView.o",
+    "swift-dependencies" : "/Users/yimisheng/Desktop/AAAucl-2025/T2_1_ucl/casa0018DeepLearning/DLLLL1/ios_mocap/build/FaceMocap.build/Debug-iphoneos/FaceMocap.build/Objects-normal/arm64/ContentView.swiftdeps",
+    "swiftmodule" : "/Users/yimisheng/Desktop/AAAucl-2025/T2_1_ucl/casa0018DeepLearning/DLLLL1/ios_mocap/build/FaceMocap.build/Debug-iphoneos/FaceMocap.build/Objects-normal/arm64/ContentView~partial.swiftmodule"
+  },
+  "/Users/yimisheng/Desktop/AAAucl-2025/T2_1_ucl/casa0018DeepLearning/DLLLL1/ios_mocap/FaceMocap/FaceMocapApp.swift" : {
+    "const-values" : "/Users/yimisheng/Desktop/AAAucl-2025/T2_1_ucl/casa0018DeepLearning/DLLLL1/ios_mocap/build/FaceMocap.build/Debug-iphoneos/FaceMocap.build/Objects-normal/arm64/FaceMocapApp.swiftconstvalues",
+    "dependencies" : "/Users/yimisheng/Desktop/AAAucl-2025/T2_1_ucl/casa0018DeepLearning/DLLLL1/ios_mocap/build/FaceMocap.build/Debug-iphoneos/FaceMocap.build/Objects-normal/arm64/FaceMocapApp.d",
+    "diagnostics" : "/Users/yimisheng/Desktop/AAAucl-2025/T2_1_ucl/casa0018DeepLearning/DLLLL1/ios_mocap/build/FaceMocap.build/Debug-iphoneos/FaceMocap.build/Objects-normal/arm64/FaceMocapApp.dia",
+    "index-unit-output-path" : "/FaceMocap.build/Debug-iphoneos/FaceMocap.build/Objects-normal/arm64/FaceMocapApp.o",
+    "llvm-bc" : "/Users/yimisheng/Desktop/AAAucl-2025/T2_1_ucl/casa0018DeepLearning/DLLLL1/ios_mocap/build/FaceMocap.build/Debug-iphoneos/FaceMocap.build/Objects-normal/arm64/FaceMocapApp.bc",
+    "object" : "/Users/yimisheng/Desktop/AAAucl-2025/T2_1_ucl/casa0018DeepLearning/DLLLL1/ios_mocap/build/FaceMocap.build/Debug-iphoneos/FaceMocap.build/Objects-normal/arm64/FaceMocapApp.o",
+    "swift-dependencies" : "/Users/yimisheng/Desktop/AAAucl-2025/T2_1_ucl/casa0018DeepLearning/DLLLL1/ios_mocap/build/FaceMocap.build/Debug-iphoneos/FaceMocap.build/Objects-normal/arm64/FaceMocapApp.swiftdeps",
+    "swiftmodule" : "/Users/yimisheng/Desktop/AAAucl-2025/T2_1_ucl/casa0018DeepLearning/DLLLL1/ios_mocap/build/FaceMocap.build/Debug-iphoneos/FaceMocap.build/Objects-normal/arm64/FaceMocapApp~partial.swiftmodule"
+  },
+  "/Users/yimisheng/Desktop/AAAucl-2025/T2_1_ucl/casa0018DeepLearning/DLLLL1/ios_mocap/FaceMocap/FaceMocapSession.swift" : {
+    "const-values" : "/Users/yimisheng/Desktop/AAAucl-2025/T2_1_ucl/casa0018DeepLearning/DLLLL1/ios_mocap/build/FaceMocap.build/Debug-iphoneos/FaceMocap.build/Objects-normal/arm64/FaceMocapSession.swiftconstvalues",
+    "dependencies" : "/Users/yimisheng/Desktop/AAAucl-2025/T2_1_ucl/casa0018DeepLearning/DLLLL1/ios_mocap/build/FaceMocap.build/Debug-iphoneos/FaceMocap.build/Objects-normal/arm64/FaceMocapSession.d",
+    "diagnostics" : "/Users/yimisheng/Desktop/AAAucl-2025/T2_1_ucl/casa0018DeepLearning/DLLLL1/ios_mocap/build/FaceMocap.build/Debug-iphoneos/FaceMocap.build/Objects-normal/arm64/FaceMocapSession.dia",
+    "index-unit-output-path" : "/FaceMocap.build/Debug-iphoneos/FaceMocap.build/Objects-normal/arm64/FaceMocapSession.o",
+    "llvm-bc" : "/Users/yimisheng/Desktop/AAAucl-2025/T2_1_ucl/casa0018DeepLearning/DLLLL1/ios_mocap/build/FaceMocap.build/Debug-iphoneos/FaceMocap.build/Objects-normal/arm64/FaceMocapSession.bc",
+    "object" : "/Users/yimisheng/Desktop/AAAucl-2025/T2_1_ucl/casa0018DeepLearning/DLLLL1/ios_mocap/build/FaceMocap.build/Debug-iphoneos/FaceMocap.build/Objects-normal/arm64/FaceMocapSession.o",
+    "swift-dependencies" : "/Users/yimisheng/Desktop/AAAucl-2025/T2_1_ucl/casa0018DeepLearning/DLLLL1/ios_mocap/build/FaceMocap.build/Debug-iphoneos/FaceMocap.build/Objects-normal/arm64/FaceMocapSession.swiftdeps",
+    "swiftmodule" : "/Users/yimisheng/Desktop/AAAucl-2025/T2_1_ucl/casa0018DeepLearning/DLLLL1/ios_mocap/build/FaceMocap.build/Debug-iphoneos/FaceMocap.build/Objects-normal/arm64/FaceMocapSession~partial.swiftmodule"
+  },
+  "/Users/yimisheng/Desktop/AAAucl-2025/T2_1_ucl/casa0018DeepLearning/DLLLL1/ios_mocap/build/FaceMocap.build/Debug-iphoneos/FaceMocap.build/DerivedSources/GeneratedAssetSymbols.swift" : {
+    "const-values" : "/Users/yimisheng/Desktop/AAAucl-2025/T2_1_ucl/casa0018DeepLearning/DLLLL1/ios_mocap/build/FaceMocap.build/Debug-iphoneos/FaceMocap.build/Objects-normal/arm64/GeneratedAssetSymbols.swiftconstvalues",
+    "dependencies" : "/Users/yimisheng/Desktop/AAAucl-2025/T2_1_ucl/casa0018DeepLearning/DLLLL1/ios_mocap/build/FaceMocap.build/Debug-iphoneos/FaceMocap.build/Objects-normal/arm64/GeneratedAssetSymbols.d",
+    "diagnostics" : "/Users/yimisheng/Desktop/AAAucl-2025/T2_1_ucl/casa0018DeepLearning/DLLLL1/ios_mocap/build/FaceMocap.build/Debug-iphoneos/FaceMocap.build/Objects-normal/arm64/GeneratedAssetSymbols.dia",
+    "index-unit-output-path" : "/FaceMocap.build/Debug-iphoneos/FaceMocap.build/Objects-normal/arm64/GeneratedAssetSymbols.o",
+    "llvm-bc" : "/Users/yimisheng/Desktop/AAAucl-2025/T2_1_ucl/casa0018DeepLearning/DLLLL1/ios_mocap/build/FaceMocap.build/Debug-iphoneos/FaceMocap.build/Objects-normal/arm64/GeneratedAssetSymbols.bc",
+    "object" : "/Users/yimisheng/Desktop/AAAucl-2025/T2_1_ucl/casa0018DeepLearning/DLLLL1/ios_mocap/build/FaceMocap.build/Debug-iphoneos/FaceMocap.build/Objects-normal/arm64/GeneratedAssetSymbols.o",
+    "swift-dependencies" : "/Users/yimisheng/Desktop/AAAucl-2025/T2_1_ucl/casa0018DeepLearning/DLLLL1/ios_mocap/build/FaceMocap.build/Debug-iphoneos/FaceMocap.build/Objects-normal/arm64/GeneratedAssetSymbols.swiftdeps",
+    "swiftmodule" : "/Users/yimisheng/Desktop/AAAucl-2025/T2_1_ucl/casa0018DeepLearning/DLLLL1/ios_mocap/build/FaceMocap.build/Debug-iphoneos/FaceMocap.build/Objects-normal/arm64/GeneratedAssetSymbols~partial.swiftmodule"
+  }
+}

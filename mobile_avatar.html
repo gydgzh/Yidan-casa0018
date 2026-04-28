@@ -111,7 +111,7 @@
 <div id="hud">
   <div>cam: <span id="s-cam" class="wait">init</span> · mp: <span id="s-mp" class="wait">init</span></div>
   <div>avatar: <span id="s-av" class="wait">load</span> · action: <span id="s-ac" class="wait">load</span></div>
-  <div>fps: <b id="s-fps">0</b> · frames: <b id="s-fr">0</b></div>
+  <div>fps: <b id="s-fps">0</b> · frames: <b id="s-fr">0</b> · detect: <span id="s-dms">-</span>ms</div>
   <div>last bs: <span id="s-bs">-</span></div>
   <div>action: <b id="s-act">-</b> conf: <span id="s-conf">-</span></div>
 </div>
@@ -162,12 +162,19 @@ const AVATAR_URLS = Q.get('avatar')
 const ACTION_MODEL_URL = Q.get('action') || './models/action_model/model.json';
 
 // ====== tuning knobs (override via URL) ======
-// Default gain 1.6 means MediaPipe values get amplified 1.6x and clamped [0,1].
-// Most blendshapes need this because MP outputs conservative values.
 const GAIN     = parseFloat(Q.get('gain'))     || 1.6;
-const SMOOTH   = parseFloat(Q.get('smooth'))   || 0.35;  // 0 = no smoothing, 0.7 = sluggish
-const HEAD_LERP= parseFloat(Q.get('headlerp')) || 0.45;  // 0..1, higher = snappier head
-const HEAD_FLIP= (Q.get('headflip') || '').toLowerCase(); // e.g. 'y' or 'xy'
+const SMOOTH   = parseFloat(Q.get('smooth'))   || 0.35;
+const HEAD_LERP= parseFloat(Q.get('headlerp')) || 0.45;
+const HEAD_FLIP= (Q.get('headflip') || '').toLowerCase();
+// Detection rate cap. RAF on desktop is 60Hz, MediaPipe is designed for 30 fps.
+// Calling it 60×/s while TFJS LSTM also runs saturates the GPU and we cascade-fail.
+const DETECT_HZ      = parseFloat(Q.get('detecthz')) || 30;
+const DETECT_INTERVAL= 1000 / DETECT_HZ;
+// Lower the default action inference cadence (previously every 6 detections, now every 10)
+const INFER_EVERY    = parseInt(Q.get('infer'))   || 10;
+// Disable action recognition entirely with ?nofx=1 — useful to confirm whether
+// LSTM is the culprit when fps drops.
+const FLAG_NOFX      = Q.has('nofx');
 // Per-shape gain overrides — give expressive shapes extra punch
 const GAIN_OVERRIDE = {
   jawOpen: 2.2,
@@ -231,6 +238,7 @@ function paint() {
   $('s-ac').textContent  = stats.action; $('s-ac').className= paintCls(null, stats.action);
   $('s-fps').textContent = stats.fps;
   $('s-fr').textContent  = stats.frames;
+  $('s-dms').textContent = detectMs ? detectMs.toFixed(1) : '-';
   $('s-bs').textContent  = stats.lastBs;
   $('s-act').textContent = stats.lastAction;
   $('s-conf').textContent= stats.lastConf;
@@ -488,17 +496,17 @@ async function initAction() {
   }
 }
 
-let inferEvery = 6, inferTick = 0;
+let inferTick = 0;
 let inferBusy = false;            // guard against concurrent predictions
 let inferErrorCount = 0;          // disable model if it keeps failing
 
 function maybeInfer(bs) {
-  if (!actionModel || inferBusy) return;
+  if (FLAG_NOFX || !actionModel || inferBusy) return;
   const row = ARKIT_KEYS.map(k => bs[k] ?? 0);
   window30.push(row);
   if (window30.length > WINDOW_LEN) window30.shift();
   if (window30.length < WINDOW_LEN) return;
-  if (++inferTick % inferEvery !== 0) return;
+  if (++inferTick % INFER_EVERY !== 0) return;
 
   inferBusy = true;
   try {
@@ -541,6 +549,13 @@ function maybeInfer(bs) {
 let lastTs = 0, frameStart = performance.now(), frameCount = 0;
 let lastSuccessfulFrame = performance.now();
 let loopErrorCount = 0;
+let lastDetectAt = 0;
+let detectMs = 0;          // running average of detection time
+// Reusable objects to avoid GC pressure (was allocating new Matrix4/Quat/Euler every frame)
+const _mat = new THREE.Matrix4();
+const _targetQ = new THREE.Quaternion();
+const _euler = new THREE.Euler();
+
 function fakeAnimate() {
   if (proxyHead) {
     proxyHead.group.rotation.y = Math.sin(performance.now()/1000) * 0.3;
@@ -549,20 +564,26 @@ function fakeAnimate() {
 
 function loop() {
   // SAFETY: every path through this function MUST end by scheduling the next RAF.
-  // One unhandled exception inside the body used to silently kill the loop and
-  // freeze the avatar after a few seconds. Now we wrap and always schedule.
   try {
-    if (!FLAG_NOCAM && video.readyState >= 2 && landmarker && !video.paused) {
-      // MediaPipe needs a strictly-increasing INTEGER timestamp.
-      const ts = Math.max(lastTs + 1, Math.floor(performance.now()));
+    const now = performance.now();
+    // Throttle detection to DETECT_HZ (default 30). Render still runs every frame
+    // so existing morph targets continue to interpolate smoothly.
+    const shouldDetect = !FLAG_NOCAM && video.readyState >= 2 && landmarker
+                         && !video.paused
+                         && (now - lastDetectAt >= DETECT_INTERVAL);
+    if (shouldDetect) {
+      lastDetectAt = now;
+      const ts = Math.max(lastTs + 1, Math.floor(now));
       lastTs = ts;
       let r = null;
+      const detectStart = performance.now();
       try {
         r = landmarker.detectForVideo(video, ts);
       } catch (e) {
         loopErrorCount++;
         log(`detectForVideo err #${loopErrorCount}: ${e.message||e}`, 'err');
       }
+      detectMs = detectMs * 0.9 + (performance.now() - detectStart) * 0.1;
       if (r && r.faceBlendshapes && r.faceBlendshapes.length) {
         const cats = r.faceBlendshapes[0].categories;
         const bs = {};
@@ -570,42 +591,40 @@ function loop() {
         try { applyBlendshapes(bs); }
         catch (e) { log('applyBs err: ' + e.message, 'err'); }
         stats.frames++;
-        lastSuccessfulFrame = performance.now();
+        lastSuccessfulFrame = now;
         const ks = Object.keys(bs);
         stats.lastBs = ks.slice(0,3).join(',');
-        // fire-and-forget — never await inside RAF, never let infer kill the loop
+        // fire-and-forget; sync inside but won't crash the loop
         try { maybeInfer(bs); }
         catch (e) { log('infer-outer err: ' + e.message, 'err'); }
-        // head pose
+        // head pose — using REUSED objects, no GC churn
         if (r.facialTransformationMatrixes && r.facialTransformationMatrixes[0]) {
           try {
-            const m = r.facialTransformationMatrixes[0].data;
-            const mat = new THREE.Matrix4().fromArray(m);
-            const targetQ = new THREE.Quaternion().setFromRotationMatrix(mat);
+            _mat.fromArray(r.facialTransformationMatrixes[0].data);
+            _targetQ.setFromRotationMatrix(_mat);
             if (HEAD_FLIP) {
-              const e = new THREE.Euler().setFromQuaternion(targetQ, 'YXZ');
-              if (HEAD_FLIP.includes('x')) e.x = -e.x;
-              if (HEAD_FLIP.includes('y')) e.y = -e.y;
-              if (HEAD_FLIP.includes('z')) e.z = -e.z;
-              targetQ.setFromEuler(e);
+              _euler.setFromQuaternion(_targetQ, 'YXZ');
+              if (HEAD_FLIP.includes('x')) _euler.x = -_euler.x;
+              if (HEAD_FLIP.includes('y')) _euler.y = -_euler.y;
+              if (HEAD_FLIP.includes('z')) _euler.z = -_euler.z;
+              _targetQ.setFromEuler(_euler);
             }
-            if (headBone) headBone.quaternion.slerp(targetQ, HEAD_LERP);
-            else if (proxyHead) proxyHead.group.quaternion.slerp(targetQ, HEAD_LERP);
+            if (headBone) headBone.quaternion.slerp(_targetQ, HEAD_LERP);
+            else if (proxyHead) proxyHead.group.quaternion.slerp(_targetQ, HEAD_LERP);
           } catch (e) { log('headpose err: ' + e.message, 'err'); }
         }
       }
       frameCount++;
-      const now = performance.now();
       if (now - frameStart > 1000) {
         stats.fps = frameCount; frameCount = 0; frameStart = now;
       }
-      // watchdog: face frames stalled for 3s → try to wake video
+      // watchdog: stalled for 3s → try to wake video
       if (now - lastSuccessfulFrame > 3000 && stats.frames > 0) {
-        log('watchdog: no face frames for 3s — attempting recovery', 'err');
-        lastSuccessfulFrame = now; // throttle the warning
+        log('watchdog: no face frames for 3s', 'err');
+        lastSuccessfulFrame = now;
         if (video.paused) video.play().catch(()=>{});
       }
-    } else {
+    } else if (FLAG_NOCAM || !landmarker) {
       fakeAnimate();
     }
     renderer.render(scene, camera);
@@ -613,7 +632,7 @@ function loop() {
     loopErrorCount++;
     log(`loop err #${loopErrorCount}: ${e.message||e}`, 'err');
   }
-  // ALWAYS schedule the next frame, regardless of any error above.
+  // ALWAYS schedule next frame, regardless of any error.
   requestAnimationFrame(loop);
 }
 

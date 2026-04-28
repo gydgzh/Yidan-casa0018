@@ -104,6 +104,9 @@
 <video id="cam" autoplay muted playsinline webkit-playsinline></video>
 <div id="effects"></div>
 <div id="action"></div>
+<div id="testbanner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:50;background:#c93;color:#000;padding:8px 12px;font:12px ui-monospace,Menlo,monospace;text-align:center;font-weight:600">
+  TEST MODE — flags: <span id="active-flags"></span> · 真实运行请去掉这些参数
+</div>
 
 <div id="hud">
   <div>cam: <span id="s-cam" class="wait">init</span> · mp: <span id="s-mp" class="wait">init</span></div>
@@ -175,6 +178,17 @@ document.getElementById('toggleLog').addEventListener('click', () => {
   logEl.classList.toggle('show');
 });
 if (FLAG_DEBUG) logEl.classList.add('show');
+
+// Show prominent banner when running in any test mode
+{
+  const active = [];
+  if (FLAG_CUBE)  active.push('cube (代理头)');
+  if (FLAG_NOCAM) active.push('nocam (无摄像头)');
+  if (active.length) {
+    document.getElementById('active-flags').textContent = active.join(' + ');
+    document.getElementById('testbanner').style.display = 'block';
+  }
+}
 
 // ====== HUD ======
 const stats = {

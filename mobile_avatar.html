@@ -161,6 +161,28 @@ const AVATAR_URLS = Q.get('avatar')
 // Action model — try same-origin /models first, fall back to nothing
 const ACTION_MODEL_URL = Q.get('action') || './models/action_model/model.json';
 
+// ====== tuning knobs (override via URL) ======
+// Default gain 1.6 means MediaPipe values get amplified 1.6x and clamped [0,1].
+// Most blendshapes need this because MP outputs conservative values.
+const GAIN     = parseFloat(Q.get('gain'))     || 1.6;
+const SMOOTH   = parseFloat(Q.get('smooth'))   || 0.35;  // 0 = no smoothing, 0.7 = sluggish
+const HEAD_LERP= parseFloat(Q.get('headlerp')) || 0.45;  // 0..1, higher = snappier head
+const HEAD_FLIP= (Q.get('headflip') || '').toLowerCase(); // e.g. 'y' or 'xy'
+// Per-shape gain overrides — give expressive shapes extra punch
+const GAIN_OVERRIDE = {
+  jawOpen: 2.2,
+  mouthSmileLeft: 2.0,  mouthSmileRight: 2.0,
+  mouthFrownLeft: 2.0,  mouthFrownRight: 2.0,
+  browInnerUp: 1.8,     browOuterUpLeft: 1.6, browOuterUpRight: 1.6,
+  browDownLeft: 1.4,    browDownRight: 1.4,
+  eyeBlinkLeft: 1.3,    eyeBlinkRight: 1.3,
+  eyeWideLeft: 1.6,     eyeWideRight: 1.6,
+  mouthFunnel: 2.0,     mouthPucker: 2.0,
+  cheekSquintLeft: 1.5, cheekSquintRight: 1.5,
+  noseSneerLeft: 1.6,   noseSneerRight: 1.6,
+  tongueOut: 2.5,
+};
+
 // ====== logger ======
 const logEl = document.getElementById('log');
 function log(msg, cls='') {
@@ -311,16 +333,28 @@ async function loadAvatar() {
     try {
       const gltf = await tryLoadOne(url);
       const root = gltf.scene;
+      const allBones = [];
       root.traverse(o => {
         if (o.isMesh && o.morphTargetDictionary) {
           morphTargets.push({ mesh:o, dict:o.morphTargetDictionary });
         }
-        if (o.isBone && /head/i.test(o.name)) headBone = o;
+        if (o.isBone) allBones.push(o.name);
       });
-      // TalkingHead avatars stand at origin facing +Z, head at ~y=1.55
-      // RPM avatars same. Lift if the model sits at floor.
+      // Head bone detection: prefer exact match, fall back to fuzzy contains.
+      const exactRe = /^(mixamorig)?Head$|Head_M$|^Head$/i;
+      headBone = allBones.map(n => {
+        let b = null; root.traverse(o => { if (o.isBone && o.name === n) b = o; });
+        return b;
+      }).find(b => b && exactRe.test(b.name));
+      if (!headBone) {
+        root.traverse(o => {
+          if (!headBone && o.isBone && /head/i.test(o.name) && !/end/i.test(o.name)) {
+            headBone = o;
+          }
+        });
+      }
       scene.add(root);
-      log(`avatar OK · ${url.split('/').pop()} · morphs=${morphTargets.length}`, 'ok');
+      log(`avatar OK · ${url.split('/').pop()} · morphs=${morphTargets.length} · bones=${allBones.length} · head=${headBone?.name || 'NONE'}`, 'ok');
       stats.avatar = morphTargets.length ? 'ok' : 'no-morphs';
       return;
     } catch (err) {
@@ -337,8 +371,12 @@ function applyBlendshapes(bs) {
     for (const { mesh, dict } of morphTargets) {
       for (const k of ARKIT_KEYS) {
         const i = dict[k]; if (i == null) continue;
-        const v = bs[k]; if (v == null) continue;
-        mesh.morphTargetInfluences[i] = v;
+        const raw = bs[k]; if (raw == null) continue;
+        const g = GAIN_OVERRIDE[k] ?? GAIN;
+        const target = Math.max(0, Math.min(1, raw * g));
+        const cur = mesh.morphTargetInfluences[i] || 0;
+        // exponential smoothing: SMOOTH=0 → instant, SMOOTH=0.7 → very smooth
+        mesh.morphTargetInfluences[i] = cur + (target - cur) * (1 - SMOOTH);
       }
     }
   } else if (proxyHead) {
@@ -501,16 +539,23 @@ async function loop() {
         const ks = Object.keys(bs);
         stats.lastBs = ks.slice(0,3).join(',');
         await maybeInfer(bs);
-        if (headBone && r.facialTransformationMatrixes && r.facialTransformationMatrixes[0]) {
+        if (r.facialTransformationMatrixes && r.facialTransformationMatrixes[0]) {
           const m = r.facialTransformationMatrixes[0].data;
           const mat = new THREE.Matrix4().fromArray(m);
-          const q = new THREE.Quaternion().setFromRotationMatrix(mat);
-          headBone.quaternion.slerp(q, 0.5);
-        } else if (proxyHead && r.facialTransformationMatrixes && r.facialTransformationMatrixes[0]) {
-          const m = r.facialTransformationMatrixes[0].data;
-          const mat = new THREE.Matrix4().fromArray(m);
-          const q = new THREE.Quaternion().setFromRotationMatrix(mat);
-          proxyHead.group.quaternion.slerp(q, 0.4);
+          const targetQ = new THREE.Quaternion().setFromRotationMatrix(mat);
+          // Optional axis flips for "mirror" feel: ?headflip=y inverts yaw
+          if (HEAD_FLIP) {
+            const e = new THREE.Euler().setFromQuaternion(targetQ, 'YXZ');
+            if (HEAD_FLIP.includes('x')) e.x = -e.x;
+            if (HEAD_FLIP.includes('y')) e.y = -e.y;
+            if (HEAD_FLIP.includes('z')) e.z = -e.z;
+            targetQ.setFromEuler(e);
+          }
+          if (headBone) {
+            headBone.quaternion.slerp(targetQ, HEAD_LERP);
+          } else if (proxyHead) {
+            proxyHead.group.quaternion.slerp(targetQ, HEAD_LERP);
+          }
         }
       }
       frameCount++;

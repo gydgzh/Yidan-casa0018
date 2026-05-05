@@ -1,0 +1,20 @@
+{
+  "name": "facemocap-relay",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Tiny WebSocket relay between iPhone (ARKit) and browser (Three.js).",
+  "main": "server_rooms.js",
+  "scripts": {
+    "start":      "node server_rooms.js",
+    "start:rooms":"node server_rooms.js",
+    "start:legacy":"node server.js",
+    "dev":        "node --watch server_rooms.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

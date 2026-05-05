@@ -1,0 +1,49 @@
+# --- Data & models ---
+data/
+data_raw/
+data_processed/
+*.tar.gz
+*.zip
+*.csv.gz
+fer2013.csv
+fer2013new.csv
+
+# Keep the final exported .tflite so reviewers can run the iOS app
+# but ignore intermediate Keras checkpoints
+training/checkpoints/
+*.h5
+*.keras
+*.pb
+saved_model/
+!models/expression_mirror_int8.tflite
+!models/expression_mirror_fp32.tflite
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+.ipynb_checkpoints/
+
+# --- macOS ---
+.DS_Store
+
+# --- Xcode / iOS ---
+ios_app/Pods/
+ios_app/Podfile.lock
+ios_app/*.xcworkspace
+ios_app/build/
+ios_app/DerivedData/
+*.xcuserstate
+xcuserdata/
+
+# --- IDE ---
+.idea/
+.vscode/
+
+# --- Logs ---
+logs/
+runs/
+*.log
+wandb/

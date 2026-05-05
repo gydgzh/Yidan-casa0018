@@ -1,0 +1,1853 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<title>Veil — Private Avatar Companionship</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --warm:#ffb86b; --cool:#6cf; --warn:#ff7575; --good:#7fe084;
+    --pri:#a78bfa; --pri2:#ec4899; --ink:#0a0a14;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    background: var(--ink); color: #fff;
+    font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Inter", "SF Pro Text", sans-serif;
+    overflow: hidden; -webkit-user-select: none; user-select: none;
+  }
+  button { font-family: inherit; }
+
+  #scene { position: fixed; inset: 0; z-index: 1; }
+  #scene canvas { display: block; width: 100%; height: 100%; }
+  #cam { position: absolute; left: -9999px; top: -9999px; width: 320px; height: 240px; }
+
+  /* === top bar === */
+  #topbar {
+    position: fixed; top: max(8px, env(safe-area-inset-top)); left: 8px; right: 8px;
+    z-index: 10; display: flex; align-items: center; gap: 10px;
+    background: rgba(20,20,30,.7); backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    padding: 8px 12px; border-radius: 14px;
+    border: 1px solid rgba(167,139,250,.15);
+  }
+  #topbar .brand { font-weight: 700; letter-spacing: 2px; font-size: 12px; color: var(--pri); }
+  #topbar .room { font: 600 12px ui-monospace, Menlo, monospace; opacity: .9; }
+  #topbar .grow { flex: 1; }
+  #topbar .pill {
+    font: 10px/1 ui-monospace, Menlo, monospace;
+    padding: 4px 8px; border-radius: 999px;
+    background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.1);
+  }
+  #topbar .pill.connected { background: rgba(126,224,132,.15); border-color: rgba(126,224,132,.4); color: var(--good); }
+  #topbar .pill.waiting   { background: rgba(255,184,107,.12); border-color: rgba(255,184,107,.35); color: var(--warm); }
+  #topbar .pill.lost      { background: rgba(255,90,90,.15); border-color: rgba(255,90,90,.4); color: var(--warn); }
+  #topbar button {
+    appearance: none; border: 1px solid rgba(255,255,255,.15);
+    background: rgba(255,255,255,.05); color: #fff;
+    padding: 5px 10px; border-radius: 999px; font-size: 11px; cursor: pointer;
+  }
+  #topbar button.danger { background: rgba(255,90,90,.18); border-color: rgba(255,90,90,.4); }
+
+  /* === Zoom-style participant grid === */
+  #grid {
+    position: fixed;
+    top: max(58px, calc(env(safe-area-inset-top) + 50px));
+    left: 12px; right: 12px;
+    bottom: max(118px, calc(env(safe-area-inset-bottom) + 110px));
+    z-index: 5;
+    display: grid;
+    gap: 12px;
+    pointer-events: none;
+  }
+  /* responsive grid templates by participant count */
+  #grid.n1 { grid-template-columns: 1fr; }
+  #grid.n2 { grid-template-columns: 1fr 1fr; }
+  #grid.n3 { grid-template-columns: repeat(3, 1fr); }
+  #grid.n4 { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
+  #grid.n5, #grid.n6 { grid-template-columns: repeat(3, 1fr); grid-template-rows: 1fr 1fr; }
+  /* portrait phone falls back to vertical stack of 1 col after 2 people */
+  @media (max-aspect-ratio: 3/4) {
+    #grid.n3, #grid.n4 { grid-template-columns: 1fr 1fr; }
+    #grid.n3 { grid-template-rows: 1fr 1fr; }
+  }
+
+  .pcell {
+    position: relative;
+    background: rgba(12, 14, 24, 0.55);
+    border: 2px solid rgba(167, 139, 250, 0.35);
+    border-radius: 18px;
+    overflow: hidden;
+    pointer-events: auto;
+    transition: border-color .25s, box-shadow .25s;
+  }
+  .pcell.self {
+    border-color: #6cf;
+    border-width: 3px;
+    box-shadow: 0 0 28px rgba(108, 200, 255, 0.30);
+  }
+  .pcell .pcell-badge {
+    position: absolute; top: 10px; left: 12px; z-index: 3;
+    font: 700 10px ui-monospace, Menlo, monospace;
+    letter-spacing: 2px;
+    color: rgba(255, 255, 255, 0.85);
+    background: rgba(0, 0, 0, 0.45);
+    padding: 4px 8px; border-radius: 6px;
+  }
+  .pcell.self .pcell-badge {
+    background: #6cf; color: #0a0a14;
+  }
+  .pcell .pcell-name {
+    position: absolute; bottom: 10px; left: 10px; right: 10px; z-index: 3;
+    font: 600 14px -apple-system, BlinkMacSystemFont, sans-serif;
+    color: white;
+  }
+  .pcell .pcell-name .nm-text {
+    display: inline-block;
+    background: rgba(0, 0, 0, 0.55);
+    padding: 5px 10px; border-radius: 8px;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    max-width: 100%;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .pcell.self .pcell-name .nm-text { color: #6cf; }
+  .pcell .pcell-status {
+    position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 3; pointer-events: none;
+    font: 600 11px ui-monospace, Menlo, monospace;
+    color: rgba(255,255,255,.85);
+    background: rgba(0,0,0,.55);
+    padding: 6px 12px; border-radius: 999px;
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+    max-width: 88%;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .pcell .pcell-react {
+    position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 64px; pointer-events: none; z-index: 4;
+    opacity: 0;
+  }
+  .pcell .pcell-react.fly {
+    animation: pcellReact 1.4s ease-out forwards;
+  }
+  @keyframes pcellReact {
+    0%   { transform: translate(-50%, -20%) scale(0.4); opacity: 0; }
+    20%  { transform: translate(-50%, -50%) scale(1.4); opacity: 1; }
+    100% { transform: translate(-50%, -110%) scale(0.7); opacity: 0; }
+  }
+
+  /* legacy labels — hidden when grid is active */
+  #labels {
+    display: none;
+    position: fixed; left: 0; right: 0;
+    bottom: max(96px, env(safe-area-inset-bottom));
+    z-index: 8; gap: 8px; padding: 0 16px; pointer-events: none;
+  }
+  #labels .lbl {
+    flex: 1; text-align: center;
+    background: rgba(20,20,30,.7); backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    padding: 6px 10px; border-radius: 10px;
+    font: 11px ui-monospace, Menlo, monospace;
+    border: 1px solid rgba(255,255,255,.08);
+  }
+  #labels .lbl b { display:block; font-size: 10px; opacity: .55; letter-spacing: 1.5px; margin-bottom: 2px; }
+  #labels .lbl .nm { color: var(--cool); font-size: 13px; font-weight: 600; }
+  #labels .lbl.peer .nm { color: var(--pri); }
+
+  /* === reaction dock — sits BELOW grid, never overlaps cells === */
+  #dock {
+    position: fixed; left: 50%; transform: translateX(-50%);
+    bottom: max(150px, env(safe-area-inset-bottom));
+    z-index: 9; display: flex; gap: 6px;
+    background: rgba(20,20,30,.7); backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    padding: 6px; border-radius: 999px;
+    border: 1px solid rgba(255,255,255,.08);
+  }
+  #dock button {
+    appearance: none; border: 1px solid rgba(255,255,255,.1);
+    background: rgba(255,255,255,.05);
+    width: 36px; height: 36px; border-radius: 999px;
+    font-size: 18px; cursor: pointer;
+    transition: transform .15s, background .15s;
+  }
+  #dock button:active { transform: scale(0.85); background: rgba(167,139,250,.3); }
+
+  /* === scene controls (background picker) === */
+  #sceneCtl {
+    position: fixed; right: 8px; top: max(56px, env(safe-area-inset-top));
+    z-index: 9; display: flex; gap: 4px;
+    background: rgba(20,20,30,.7); backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    padding: 4px; border-radius: 999px;
+    border: 1px solid rgba(255,255,255,.08);
+  }
+  #sceneCtl button {
+    appearance: none; border: none; background: transparent;
+    width: 28px; height: 28px; border-radius: 50%; cursor: pointer; font-size: 14px;
+  }
+  #sceneCtl button.sel { background: rgba(167,139,250,.3); }
+
+  /* === privacy badge === */
+  #privacy {
+    position: fixed; left: 8px;
+    bottom: max(40px, env(safe-area-inset-bottom));
+    z-index: 8;
+    background: rgba(126,224,132,.1);
+    border: 1px solid rgba(126,224,132,.25);
+    color: var(--good);
+    padding: 6px 10px; border-radius: 8px;
+    font: 10px/1.3 ui-monospace, Menlo, monospace;
+  }
+
+  /* === central burst === */
+  #burst {
+    position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%);
+    z-index: 7; font-size: 56px; opacity: 0; pointer-events: none;
+    text-shadow: 0 4px 20px rgba(167,139,250,.7);
+    transition: opacity .15s, transform .4s;
+  }
+  #burst.show { opacity: 1; transform: translate(-50%,-50%) scale(1.2); }
+
+  /* === floating reactions === */
+  #fx { position: fixed; inset: 0; pointer-events: none; z-index: 6; overflow: hidden; }
+  .fx-emoji {
+    position: absolute; font-size: 32px;
+    animation: rise 1.6s ease-out forwards;
+  }
+  @keyframes rise {
+    0%   { transform: translate(0,0) scale(.5); opacity: 0; }
+    20%  { transform: translate(0,-10px) scale(1); opacity: 1; }
+    100% { transform: translate(var(--dx), var(--dy)) scale(.6); opacity: 0; }
+  }
+
+  /* === status bar === */
+  #status {
+    position: fixed; right: 8px;
+    bottom: max(40px, env(safe-area-inset-bottom));
+    z-index: 8; display: flex; gap: 8px;
+    background: rgba(20,20,30,.7); backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    padding: 6px 10px; border-radius: 8px;
+    font: 10px ui-monospace, Menlo, monospace; opacity: .85;
+  }
+  #status .ok { color: var(--good); } #status .bad { color: var(--warn); } #status .wait { color: var(--warm); }
+  #status button {
+    appearance: none; border: 1px solid rgba(255,255,255,.15);
+    background: transparent; color: rgba(255,255,255,.7);
+    font: inherit; padding: 0 8px; border-radius: 6px; cursor: pointer;
+  }
+
+  #log {
+    position: fixed; left: 8px; right: 8px;
+    bottom: max(70px, env(safe-area-inset-bottom)); z-index: 11;
+    background: rgba(0,0,0,.85); color: #ccc;
+    padding: 8px 10px; border-radius: 10px;
+    font: 10px/1.4 ui-monospace, Menlo, monospace;
+    max-height: 140px; overflow-y: auto;
+    white-space: pre-wrap; word-break: break-all;
+    display: none;
+  }
+  #log.show { display: block; }
+  #log .err { color: var(--warn); } #log .ok { color: var(--good); }
+
+  /* === START SCREEN with cards === */
+  #start {
+    position: fixed; inset: 0; z-index: 100;
+    display: flex; flex-direction: column;
+    background: linear-gradient(160deg,#1f1640 0%,#0a0a14 70%);
+    padding: 22px 18px; overflow-y: auto; overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+  }
+  #start .head { text-align: center; margin-bottom: 6px; }
+  #start .logo { font-size: 11px; letter-spacing: 6px; color: var(--pri); opacity: .9; margin-bottom: 4px; }
+  #start h1 { font-weight: 700; font-size: 28px; margin: 0 0 6px; line-height: 1.05; }
+  #start .sub { color: rgba(255,255,255,.65); margin: 0 auto 12px; max-width: 360px; font-size: 12px; line-height: 1.55; }
+
+  #start .group { max-width: 460px; margin: 12px auto 0; width: 100%; }
+  #start .group-label {
+    font-size: 10px; letter-spacing: 1.8px; color: rgba(255,255,255,.5);
+    margin: 14px 0 8px; text-transform: uppercase;
+  }
+  #start input, #start select {
+    appearance: none; -webkit-appearance: none;
+    width: 100%; background: rgba(255,255,255,.05);
+    border: 1px solid rgba(255,255,255,.12);
+    color: #fff; padding: 12px 14px; border-radius: 10px;
+    font: inherit; outline: none;
+  }
+  #start input:focus { border-color: var(--pri); }
+
+  /* avatar grid */
+  .avgrid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+    gap: 8px;
+  }
+  .avcard {
+    position: relative; cursor: pointer;
+    background: rgba(255,255,255,.04);
+    border: 2px solid rgba(255,255,255,.08);
+    border-radius: 12px; padding: 12px 8px; text-align: center;
+    transition: all .15s;
+  }
+  .avcard:active { transform: scale(0.96); }
+  .avcard.sel {
+    background: rgba(167,139,250,.15);
+    border-color: var(--pri);
+    box-shadow: 0 0 0 4px rgba(167,139,250,.15);
+  }
+  .avcard.peer.sel { border-color: var(--cool); background: rgba(108,200,255,.12); box-shadow: 0 0 0 4px rgba(108,200,255,.15); }
+  .avcard .ico { font-size: 32px; line-height: 1; margin-bottom: 6px; }
+  .avcard .nm { font-size: 12px; font-weight: 600; }
+  .avcard .ty { font-size: 10px; opacity: .55; margin-top: 2px; }
+  .avcard .badge {
+    position: absolute; top: 4px; right: 6px;
+    font-size: 8px; padding: 2px 5px; border-radius: 4px;
+    background: rgba(0,0,0,.4); letter-spacing: 1px;
+  }
+  .avcard .badge.realistic { color: var(--cool); }
+  .avcard .badge.anime     { color: var(--pri2); }
+  .avcard .badge.custom    { color: var(--warm); }
+
+  .who-tabs { display: flex; gap: 6px; margin-bottom: 8px; }
+  .who-tabs button {
+    flex: 1; appearance: none;
+    background: rgba(255,255,255,.04); color: rgba(255,255,255,.7);
+    border: 1px solid rgba(255,255,255,.1);
+    padding: 8px 12px; border-radius: 999px; font-size: 12px;
+    cursor: pointer;
+  }
+  .who-tabs button.sel { background: rgba(167,139,250,.18); color: #fff; border-color: var(--pri); }
+  .who-tabs button.sel.peer-tab { background: rgba(108,200,255,.18); border-color: var(--cool); }
+
+  #start .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  #start .field { margin: 8px 0; }
+  #start .field label { display: block; font-size: 10px; letter-spacing: 1.5px; color: rgba(255,255,255,.5); margin-bottom: 4px; }
+
+  #start .go {
+    margin: 22px auto 0; display: block; max-width: 320px; width: 100%;
+    appearance: none; border: none;
+    background: linear-gradient(135deg, var(--pri), var(--cool));
+    color: #fff; font-weight: 700; font-size: 15px;
+    padding: 14px 32px; border-radius: 999px;
+    box-shadow: 0 8px 28px rgba(167,139,250,.35); cursor: pointer;
+  }
+  #start .go:disabled { background: #555; box-shadow: none; }
+
+  #start .privacy {
+    margin: 22px auto 6px; max-width: 460px;
+    font-size: 10px; line-height: 1.6;
+    color: rgba(255,255,255,.5);
+    border-top: 1px solid rgba(255,255,255,.08);
+    padding-top: 14px;
+  }
+  #start .privacy b { color: var(--good); }
+
+  /* hide custom URL field unless custom selected */
+  .custom-row { display: none; }
+  .custom-row.show { display: block; }
+</style>
+</head>
+<body>
+
+<div id="scene"></div>
+<div id="grid"></div>
+<video id="cam" autoplay muted playsinline webkit-playsinline></video>
+<div id="burst"></div>
+<div id="fx"></div>
+
+<!-- Diagnostic banner (top of screen). Hidden by default; shows on boot,
+     turns green on success, red+sticky on any model-load failure. -->
+<div id="diagBanner" style="
+  position:fixed; top:0; left:0; right:0; z-index:200;
+  padding:8px 12px; font:600 11px/1.4 ui-monospace,Menlo,monospace;
+  text-align:center; color:#fff; background:#3b2c5e;
+  border-bottom:1px solid rgba(255,255,255,.15); display:none;
+  white-space:pre-wrap;
+"></div>
+
+<div id="topbar">
+  <div class="brand">VEIL</div>
+  <div class="room" id="roomLabel">—</div>
+  <div class="grow"></div>
+  <span class="pill waiting" id="connPill">connecting…</span>
+  <span class="pill" id="bwPill">— KB/s</span>
+  <button id="btnEnd" class="danger">Leave</button>
+</div>
+
+<div id="sceneCtl">
+  <button data-bg="cosmic"  class="sel" title="Cosmic">🌌</button>
+  <button data-bg="cafe"    title="Cafe">☕</button>
+  <button data-bg="forest"  title="Forest">🌲</button>
+  <button data-bg="ocean"   title="Ocean">🌊</button>
+</div>
+
+<div id="dock" title="Send a reaction your friend will see">
+  <button data-react="❤️">❤️</button>
+  <button data-react="✨">✨</button>
+  <button data-react="🎉">🎉</button>
+  <button data-react="👋">👋</button>
+  <button data-react="☕">☕</button>
+  <button data-react="🌙">🌙</button>
+</div>
+
+<div id="labels"></div>
+
+<div id="privacy">🔒 <b>On-device</b> · raw camera never leaves this phone</div>
+
+<div id="status">
+  <span>cam:<span id="s-cam" class="wait">init</span></span>
+  <span>mp:<span id="s-mp" class="wait">init</span></span>
+  <span>av:<span id="s-av" class="wait">load</span></span>
+  <span>fps:<span id="s-fps">0</span></span>
+  <span>rtt:<span id="s-rtt">-</span>ms</span>
+  <button onclick="document.getElementById('log').classList.toggle('show')">log</button>
+</div>
+<div id="log"></div>
+
+<!-- start screen -->
+<div id="start">
+  <div class="head">
+    <div class="logo">VEIL</div>
+    <h1>Be together,<br>stay private.</h1>
+    <p class="sub">Your face stays on your phone — only your <b>expressions</b> travel to your friend through a 3D avatar of your choice. ~6 KB/s, no cloud.</p>
+  </div>
+
+  <div class="quickhelp" style="background:rgba(167,139,250,.1);border:1px solid rgba(167,139,250,.25);border-radius:10px;padding:10px 12px;margin:0 0 16px;font-size:11px;line-height:1.55;color:rgba(255,255,255,.85)">
+    <b style="color:#a78bfa">3 steps to start:</b><br>
+    1. Pick a name + a shared room code (agree with your friend)<br>
+    2. Pick the avatar you want others to see you as<br>
+    3. Tap the button → allow camera → wait for your friend to join the same room
+  </div>
+
+  <div class="group">
+    <div class="row2">
+      <div class="field">
+        <label>① Your name</label>
+        <input id="myNameInput" placeholder="e.g. Yidan" maxlength="16" autocomplete="off" />
+        <div class="hint" style="font-size:10px;color:rgba(255,255,255,.45);margin-top:4px">how friends see you in the room</div>
+      </div>
+      <div class="field">
+        <label>② Room code</label>
+        <input id="roomCodeInput" placeholder="e.g. cosy42" maxlength="20" autocomplete="off" />
+        <div class="hint" style="font-size:10px;color:rgba(255,255,255,.45);margin-top:4px">share this with your friend to pair</div>
+      </div>
+    </div>
+    <div class="field">
+      <label>③ Relay server <span style="opacity:.5;font-weight:400">(auto-filled)</span></label>
+      <input id="relayInput" placeholder="ws://localhost:8765" autocomplete="off" />
+      <div class="hint" style="font-size:10px;color:rgba(255,255,255,.45);margin-top:4px">
+        Local: <code style="color:#9bd1ff">ws://localhost:8765</code> &nbsp;·&nbsp; Cross-device: <code style="color:#9bd1ff">ws://&lt;mac-ip&gt;:8765</code>
+      </div>
+    </div>
+  </div>
+
+  <div class="group">
+    <div class="group-label" style="display:flex;justify-content:space-between;align-items:center">
+      <span>④ Choose your avatar</span>
+      <button type="button" id="btnRandom" style="appearance:none;border:1px solid rgba(167,139,250,.4);background:rgba(167,139,250,.12);color:#fff;font-size:10px;padding:4px 10px;border-radius:999px;cursor:pointer">🎲 Random</button>
+    </div>
+    <p style="margin:0 0 10px;font-size:11px;color:rgba(255,255,255,.78);line-height:1.5">
+      <b style="color:#ffd166">⚠ Important:</b> if your friend is also on this Mac, make sure each window picks a <b>DIFFERENT</b> avatar — otherwise both faces will look identical on screen.<br>
+      <span style="opacity:.6">Avatars load from CDN on first use (~5 sec), then cached.</span>
+    </p>
+    <div class="avgrid" id="avgrid"></div>
+
+    <div class="custom-row" id="customRow">
+      <div class="field" style="margin-top:10px">
+        <label id="customLabel">Paste your own .glb URL</label>
+        <input id="customUrlInput" placeholder="https://models.readyplayer.me/your-avatar-id.glb" autocomplete="off" />
+        <div class="hint" style="font-size:11px;color:rgba(255,255,255,.7);margin-top:6px;line-height:1.55">
+          <b style="color:#a78bfa">Where to get a .glb URL:</b><br>
+          • <a href="https://readyplayer.me/avatar" target="_blank" style="color:#9bd1ff">readyplayer.me/avatar</a>
+            — design your own face, click "Done", copy the .glb link<br>
+          • <a href="https://hub.vroid.com/" target="_blank" style="color:#9bd1ff">hub.vroid.com</a>
+            — anime VRM avatars (paste a download link if VRM)<br>
+          • <a href="https://github.com/met4citizen/TalkingHead/tree/main/avatars" target="_blank" style="color:#9bd1ff">TalkingHead avatars</a>
+            — more realistic GLB heads (right-click → copy raw URL)
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <button id="btnGo" class="go">⑤ Allow camera &amp; enter room</button>
+
+  <p class="privacy">
+    Veil sends only abstract facial expression coefficients (52 floats × 24 Hz ≈ 6 KB/s). <b>No video, no audio, no identifiable face data.</b><br>
+    MediaPipe Face Landmarker (Apache‑2.0), Three.js (MIT), TalkingHead avatars by met4citizen (MIT), @pixiv/three-vrm (MIT), self-trained 1D-CNN expression classifier.
+  </p>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+    "@pixiv/three-vrm": "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@2.1.2/lib/three-vrm.module.min.js"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
+
+// ====== URL flags ======
+const Q = new URLSearchParams(location.search);
+const FLAG_DEBUG = Q.has('debug');
+const FLAG_LOCAL = Q.has('local');     // force local-first URL ordering (CDN-blocked envs)
+const FLAG_DEMO  = Q.has('demo');      // bypass start-screen, auto-load default avatar (rendering smoke-test)
+const FORCE_AV   = Q.get('myav');      // override avatar key from URL (e.g. ?myav=brunette)
+const ACTION_MODEL_URL = Q.get('action') || './models/action_model/model.json';
+
+// ====== Diagnostic banner ======
+// Top-of-screen status bar. Loud, sticky on errors, dismisses on success.
+// Replaces the easy-to-miss "log" button at the bottom for boot-time issues.
+const VEIL_BUILD_TAG = 'v4.3-localfix-' + (Date.now() % 100000);
+const _diag = document.getElementById('diagBanner');
+function diag(msg, level='info') {
+  if (!_diag) return;
+  const colors = { info:'#3b2c5e', ok:'#1f5f3a', err:'#6e1f1f', warn:'#7a5a1f' };
+  _diag.style.background = colors[level] || colors.info;
+  _diag.style.display = 'block';
+  _diag.textContent = `[VEIL ${VEIL_BUILD_TAG}] ${msg}`;
+  // sticky on errors so they don't auto-dismiss
+  if (level === 'err' || level === 'warn') _diag.dataset.sticky = '1';
+  console.log('[DIAG]', level, msg);
+}
+function diagDismiss() {
+  // Don't auto-dismiss when the banner is showing a sticky error/warning.
+  if (_diag && !_diag.dataset.sticky) _diag.style.display = 'none';
+}
+diag('booting modules…', 'info');
+
+// ====== AVATAR BANK — verified files only ======
+// Each entry: { name, style, type (glb/vrm), urls (try in order, FALLBACK_URL appended) }
+//   "Realistic" 3 = TalkingHead (MIT), GLB w/ ARKit morph names — drop-in
+//   "Anime"     2 = local VRM files (your avatar_anime_*.vrm), driven via VRM expression manager
+// All avatars stream from CDN (jsdelivr) — no local ./models/ files needed,
+// no download_assets.sh required. First load takes a few seconds, browser caches forever.
+// Second URL in each chain is a fallback (github.com /raw/) for when jsdelivr hiccups.
+// Local fallback assets (relative to mobile_avatar.html) — used when CDN is
+// blocked / slow. These MUST exist on disk under the same web root.
+const LOCAL_GLB     = './models/avatar.glb';                       // 4.7 MB brunette (verified glTF binary)
+const LOCAL_VRM_V1  = './models/V-1.vrm';                          // 15  MB anime VRM (verified)
+const LOCAL_VRM_ALT = './web_avatar/public/models/avatar.vrm';     // 12  MB anime VRM (verified, alt skin)
+
+// CDN URLs for the realistic GLBs. Tried in addition to local — order depends
+// on FLAG_LOCAL. With ?local=1 (or when LAN-only), local is tried FIRST so the
+// page loads instantly even on CDN-blocked networks (e.g. China).
+const CDN_BRUNETTE = ['https://cdn.jsdelivr.net/gh/met4citizen/TalkingHead@main/avatars/brunette.glb',
+                      'https://github.com/met4citizen/TalkingHead/raw/main/avatars/brunette.glb'];
+const CDN_BLONDE   = ['https://cdn.jsdelivr.net/gh/met4citizen/TalkingHead@main/avatars/blonde.glb',
+                      'https://github.com/met4citizen/TalkingHead/raw/main/avatars/blonde.glb'];
+const CDN_ASIAN    = ['https://cdn.jsdelivr.net/gh/met4citizen/TalkingHead@main/avatars/asian.glb',
+                      'https://github.com/met4citizen/TalkingHead/raw/main/avatars/asian.glb'];
+
+// Helper: order URLs based on FLAG_LOCAL. With ?local=1, local file first.
+const _ord = (cdnUrls, localUrl) => FLAG_LOCAL
+  ? [localUrl, ...cdnUrls]
+  : [...cdnUrls, localUrl];
+
+const AVATAR_BANK = {
+  // ---- Realistic GLB (met4citizen/TalkingHead, MIT) ----
+  brunette:   { name:'Mira',    style:'realistic', type:'glb', icon:'👩🏻',
+                urls: _ord(CDN_BRUNETTE, LOCAL_GLB) },
+  blonde:     { name:'Emma',    style:'realistic', type:'glb', icon:'👱🏼‍♀️',
+                urls: _ord(CDN_BLONDE, LOCAL_GLB) },
+  asian:      { name:'Ada',     style:'realistic', type:'glb', icon:'👩🏻‍🦱',
+                urls: _ord(CDN_ASIAN, LOCAL_GLB) },
+  // ---- VRM anime avatars (local files only — verified to exist on disk) ----
+  // The HEAD-ONLY clipping plane (renderer.clippingPlanes, y >= 1.30) means
+  // even if textures fail, only the head shows — never the torso.
+  vroid_v1:   { name:'V-1',      style:'anime',  type:'vrm', icon:'🌸',
+                urls:[LOCAL_VRM_V1, LOCAL_VRM_ALT] },
+  vroid_a:    { name:'VRoid #1', style:'anime',  type:'vrm', icon:'⭐',
+                urls:[LOCAL_VRM_ALT, LOCAL_VRM_V1] },   // ALT skin (different VRM)
+  vroid_b:    { name:'VRoid #2', style:'anime',  type:'vrm', icon:'🌙',
+                urls:[LOCAL_VRM_V1,  LOCAL_VRM_ALT] },  // re-uses V-1 (alias) — both files exist
+  // ---- Bring your own (paste any public .glb / .vrm URL) ----
+  custom:     { name:'Custom',  style:'custom',    type:'auto',icon:'➕',
+                urls:[] },  // filled at boot from input
+};
+// last-resort fallback chain. Always includes a LOCAL VRM and a LOCAL GLB so
+// any peer slot eventually loads SOMETHING off disk even when every CDN is
+// unreachable. Order: local-VRM first (if request was VRM), local-GLB next,
+// CDN as a third option.
+const FALLBACK_URLS = [
+  LOCAL_GLB,
+  LOCAL_VRM_V1,
+  'https://cdn.jsdelivr.net/gh/met4citizen/TalkingHead@main/avatars/brunette.glb',
+];
+
+// ====== tuning ======
+const GAIN     = parseFloat(Q.get('gain'))     || 1.6;
+const SMOOTH   = parseFloat(Q.get('smooth'))   || 0.35;
+const HEAD_LERP= parseFloat(Q.get('headlerp')) || 0.45;
+const HEAD_FLIP= (Q.get('headflip') || '').toLowerCase();
+const DETECT_HZ= parseFloat(Q.get('detecthz')) || 30;
+const SEND_HZ  = parseFloat(Q.get('sendhz'))   || 24;
+const DETECT_INTERVAL= 1000 / DETECT_HZ;
+const SEND_INTERVAL  = 1000 / SEND_HZ;
+const INFER_EVERY    = parseInt(Q.get('infer'))   || 10;
+const FLAG_NOFX      = Q.has('nofx');
+
+const GAIN_OVERRIDE = {
+  jawOpen: 2.2, mouthSmileLeft: 2.0, mouthSmileRight: 2.0,
+  mouthFrownLeft: 2.0, mouthFrownRight: 2.0,
+  browInnerUp: 1.8, browOuterUpLeft: 1.6, browOuterUpRight: 1.6,
+  browDownLeft: 1.4, browDownRight: 1.4,
+  eyeBlinkLeft: 1.3, eyeBlinkRight: 1.3, eyeWideLeft: 1.6, eyeWideRight: 1.6,
+  mouthFunnel: 2.0, mouthPucker: 2.0,
+  cheekSquintLeft: 1.5, cheekSquintRight: 1.5,
+  noseSneerLeft: 1.6, noseSneerRight: 1.6, tongueOut: 2.5,
+};
+
+// ====== logger ======
+const logEl = document.getElementById('log');
+function log(msg, cls='') {
+  const t = new Date().toTimeString().slice(0,8);
+  const line = document.createElement('div');
+  if (cls) line.className = cls;
+  line.textContent = `[${t}] ${msg}`;
+  logEl.appendChild(line);
+  logEl.scrollTop = logEl.scrollHeight;
+  console.log(msg);
+}
+window.addEventListener('error', e => log('ERR: ' + e.message, 'err'));
+window.addEventListener('unhandledrejection', e => log('PROMISE: ' + (e.reason && e.reason.message || e.reason), 'err'));
+if (FLAG_DEBUG) logEl.classList.add('show');
+
+// ====== HUD pills ======
+const $ = (id)=>document.getElementById(id);
+const stats = { cam:'init', mp:'init', avatar:'wait', fps:0, rtt:0, bytesPerSec:0 };
+function setPill(id, v) {
+  const el = $(id); el.textContent = v;
+  el.className = v==='ok'?'ok':v==='fail'||v==='bad'?'bad':'wait';
+}
+setInterval(() => {
+  setPill('s-cam', stats.cam); setPill('s-mp', stats.mp); setPill('s-av', stats.avatar);
+  $('s-fps').textContent = stats.fps;
+  $('s-rtt').textContent = stats.rtt || '-';
+  const kb = (stats.bytesPerSec / 1024).toFixed(1);
+  $('bwPill').textContent = `${kb} KB/s`;
+  $('bwPill').classList.toggle('connected', stats.bytesPerSec > 0);
+  stats.bytesPerSec = 0;
+}, 1000);
+
+// ====== Three.js scene with TWO avatars, face-only framing ======
+// alpha:true + setClearAlpha(0) → outside-cell canvas pixels are TRANSPARENT,
+// so the dark page background shows through cleanly with no stray avatar pixels
+// leaking above/below the grid.
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setClearColor(0x000000, 0);
+
+// HEAD-ONLY safety clip — anything below world y=1.30 (≈ collarbone) is
+// hard-clipped at the GPU level. Means even a VRM with broken Mtoon textures
+// or a totally undressed body model will only ever show the head + neck.
+// Survives any future avatar URL the user pastes into Custom URL.
+renderer.localClippingEnabled = true;
+const HEAD_ONLY_CLIP = new THREE.Plane(new THREE.Vector3(0, 1, 0), -1.30);
+renderer.clippingPlanes = [HEAD_ONLY_CLIP];
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+$('scene').appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const FACE_Y = 1.55;
+const camera = new THREE.PerspectiveCamera(28, window.innerWidth/window.innerHeight, 0.05, 100);
+function placeCamera() {
+  const portrait = window.innerHeight > window.innerWidth;
+  if (portrait) {
+    camera.position.set(0, FACE_Y, 1.55); camera.fov = 30;
+  } else {
+    camera.position.set(0, FACE_Y, 1.25); camera.fov = 24;
+  }
+  camera.lookAt(0, FACE_Y, 0);
+  camera.updateProjectionMatrix();
+}
+placeCamera();
+
+let pmremTarget = null;
+try {
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  pmremTarget = pmrem.fromScene(new RoomEnvironment(), 0.04);
+  scene.environment = pmremTarget.texture;
+} catch(e) { log('PMREM env skipped: ' + e.message); }
+const dir = new THREE.DirectionalLight(0xffffff, 1.4);
+dir.position.set(1.5, 2.5, 1.5); scene.add(dir);
+const ambient = new THREE.AmbientLight(0xffffff, 0.5); scene.add(ambient);
+const rim = new THREE.DirectionalLight(0xa78bfa, 0.6);
+rim.position.set(-1.5, 1.5, -1.5); scene.add(rim);
+// Lights need to render on EVERY layer so each cell's camera lights the avatar
+[dir, ambient, rim].forEach(l => l.layers.enableAll());
+
+// halos — created per slot at layout time
+const haloGeo = new THREE.CircleGeometry(0.22, 64);
+const SELF_COLOR = 0x6cf, PEER_COLORS = [0xa78bfa, 0xff8ab4, 0xffb86b, 0x7fe084, 0x4a8fff, 0xa3e635];
+function makeHaloFor(slot, color) {
+  const mat = new THREE.MeshBasicMaterial({ color, transparent:true, opacity:0.18 });
+  const mesh = new THREE.Mesh(haloGeo, mat);
+  mesh.position.set(0, FACE_Y, -0.25);
+  scene.add(mesh);
+  slot.halo = { mesh, mat };
+  if (slot.layerIdx) mesh.layers.set(slot.layerIdx);
+}
+// (refreshHaloPositions defined later — single source of truth post grid rewrite)
+
+// background presets — only changes scene bg; halo colors stay per-slot
+const BACKGROUNDS = {
+  cosmic: '#1a1530', cafe: '#3d2a1d', forest: '#1d3d2a', ocean: '#1d2a3d',
+};
+function applyBackground(name) {
+  scene.background = new THREE.Color(BACKGROUNDS[name] || BACKGROUNDS.cosmic);
+}
+applyBackground('cosmic');
+document.querySelectorAll('#sceneCtl button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#sceneCtl button').forEach(b => b.classList.remove('sel'));
+    btn.classList.add('sel');
+    applyBackground(btn.dataset.bg);
+  });
+});
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth/window.innerHeight;
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  placeCamera();
+});
+
+// ====== ARKit blendshape names (52, MediaPipe canonical) ======
+const ARKIT_KEYS = [
+  'browDownLeft','browDownRight','browInnerUp','browOuterUpLeft','browOuterUpRight',
+  'cheekPuff','cheekSquintLeft','cheekSquintRight',
+  'eyeBlinkLeft','eyeBlinkRight',
+  'eyeLookDownLeft','eyeLookDownRight','eyeLookInLeft','eyeLookInRight',
+  'eyeLookOutLeft','eyeLookOutRight','eyeLookUpLeft','eyeLookUpRight',
+  'eyeSquintLeft','eyeSquintRight','eyeWideLeft','eyeWideRight',
+  'jawForward','jawLeft','jawOpen','jawRight',
+  'mouthClose','mouthDimpleLeft','mouthDimpleRight',
+  'mouthFrownLeft','mouthFrownRight','mouthFunnel',
+  'mouthLeft','mouthLowerDownLeft','mouthLowerDownRight',
+  'mouthPressLeft','mouthPressRight','mouthPucker','mouthRight',
+  'mouthRollLower','mouthRollUpper','mouthShrugLower','mouthShrugUpper',
+  'mouthSmileLeft','mouthSmileRight','mouthStretchLeft','mouthStretchRight',
+  'mouthUpperUpLeft','mouthUpperUpRight',
+  'noseSneerLeft','noseSneerRight','tongueOut'
+];
+const clamp01 = v => Math.max(0, Math.min(1, v));
+
+// ====== Avatar slot — supports GLB (ARKit morphs) AND VRM (expression manager) ======
+// 3D floating name tag (canvas-textured sprite above each avatar's head)
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x+r, y);
+  ctx.arcTo(x+w, y, x+w, y+h, r);
+  ctx.arcTo(x+w, y+h, x, y+h, r);
+  ctx.arcTo(x, y+h, x, y, r);
+  ctx.arcTo(x, y, x+w, y, r);
+  ctx.closePath();
+}
+function makeNameSprite(name, isSelf) {
+  const W = 384, H = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  // shadow
+  ctx.shadowColor = 'rgba(0,0,0,0.5)';
+  ctx.shadowBlur = 18; ctx.shadowOffsetY = 4;
+  ctx.fillStyle = isSelf ? '#6cf' : 'rgba(167,139,250,0.92)';
+  roundRect(ctx, 12, 14, W-24, H-28, 28); ctx.fill();
+  ctx.shadowColor = 'transparent';
+  ctx.fillStyle = '#fff';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  if (isSelf) {
+    ctx.font = '700 30px -apple-system, sans-serif';
+    ctx.fillText('▼ YOU ▼', W/2, 48);
+    ctx.font = '600 26px -apple-system, sans-serif';
+    ctx.fillText(name, W/2, 88);
+  } else {
+    ctx.font = '700 36px -apple-system, sans-serif';
+    ctx.fillText(name, W/2, 64);
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.minFilter = THREE.LinearFilter;
+  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
+  const sprite = new THREE.Sprite(mat);
+  sprite.scale.set(isSelf ? 0.42 : 0.36, isSelf ? 0.14 : 0.12, 1);
+  sprite.renderOrder = 999;       // always on top
+  return sprite;
+}
+
+// Each slot owns a Three.js layer (so its own camera renders only this avatar)
+// and a DOM cell (.pcell) that visually frames it.
+let _nextLayer = 0;
+function nextLayer() { return (_nextLayer = (_nextLayer + 1) % 31) + 1; }  // 1..31, layer 0 reserved for shared lights
+
+class AvatarSlot {
+  constructor(name) {
+    this.name = name;
+    this.layerIdx = 0;        // assigned at create-cell time
+    this.kind = null;
+    this.morphs = [];
+    this.vrm = null;
+    this.headBone = null;
+    this.root = null;
+    this.proxy = null;
+    this.displayName = name;
+    this.isSelf = false;
+    this.cellEl = null;       // DOM .pcell
+    this.cellCam = null;      // dedicated PerspectiveCamera
+    this.avatarKey = 'brunette';
+    this.lastAction = 'neutral';
+  }
+  // Compatibility no-ops — older code paths called these; we now use DOM cells instead.
+  setNameTag(name, isSelf) {
+    this.displayName = name; this.isSelf = isSelf;
+    if (this.cellEl) {
+      this.cellEl.querySelector('.pcell-badge').textContent = isSelf ? 'YOU' : 'FRIEND';
+      this.cellEl.querySelector('.nm-text').textContent = name;
+      this.cellEl.classList.toggle('self', !!isSelf);
+    }
+  }
+  updateNameTagPosition() { /* DOM does this automatically */ }
+  applyLayout(/* per-cell rendering — every avatar at world origin */) {
+    if (this.root) {
+      // VRM faces -Z by default → rotate 180° so it faces +Z toward camera
+      this.root.position.set(0, 0, 0);
+      this.root.rotation.y = (this.kind === 'vrm') ? Math.PI : 0;
+      // After mesh is mounted, use bounding box to auto-align the HEAD to FACE_Y.
+      // This fixes the "camera looks at chest, head is cut off above cell" bug.
+      const box = new THREE.Box3().setFromObject(this.root);
+      if (isFinite(box.max.y) && box.max.y > 0.5) {
+        // assume top of bounding box ≈ top of head (or hair); offset so it lands at FACE_Y + 0.16
+        const targetTopY = FACE_Y + 0.16;
+        this.root.position.y = targetTopY - box.max.y;
+      }
+    } else if (this.proxy) {
+      this.proxy.group.position.set(0, FACE_Y, 0);
+      this.proxy.group.rotation.y = 0;
+    }
+  }
+  setLayer(layer) {
+    this.layerIdx = layer;
+    const apply = (obj) => obj.layers.set(layer);
+    if (this.root)         this.root.traverse(apply);
+    if (this.proxy?.group) this.proxy.group.traverse(apply);
+    if (this.halo?.mesh)   this.halo.mesh.layers.set(layer);
+  }
+  // (legacy applyLayout(x,z,yaw) replaced above by per-slot origin positioning)
+  buildProxy() {
+    this.kind = 'proxy';
+    const g = new THREE.Group();
+    g.position.set(this.layoutX || 0, FACE_Y, this.layoutZ || 0);
+    const skinHue = this.name === 'self' ? 0xf2c2a8 : 0xe8b8c8;
+    const skin = new THREE.MeshStandardMaterial({ color: skinHue, roughness:.6 });
+    g.add(new THREE.Mesh(new THREE.SphereGeometry(0.13, 32, 32), skin));
+    const eye = new THREE.MeshStandardMaterial({color:0x222});
+    const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.018, 16, 16), eye);
+    eyeL.position.set(-0.05, 0.025, 0.115); g.add(eyeL);
+    const eyeR = eyeL.clone(); eyeR.position.x = 0.05; g.add(eyeR);
+    const brow = new THREE.MeshStandardMaterial({color:0x442211});
+    const browL = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.008, 0.01), brow);
+    browL.position.set(-0.05, 0.06, 0.115); g.add(browL);
+    const browR = browL.clone(); browR.position.x = 0.05; g.add(browR);
+    const mouth = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.012, 0.01),
+                                 new THREE.MeshStandardMaterial({color:0x551122}));
+    mouth.position.set(0, -0.05, 0.115); g.add(mouth);
+    scene.add(g);
+    this.proxy = { group:g, eyeL, eyeR, browL, browR, mouth };
+  }
+
+  /** Detect VRM by file extension or magic. */
+  isVrmUrl(url) { return /\.vrm(\?|$)/i.test(url); }
+
+  async load(urls) {
+    // De-dup tryList: requested urls + global fallback chain (CDN brunette, local glb)
+    const tryList = Array.from(new Set([...(urls || []), ...FALLBACK_URLS]));
+    this._setCellStatus('loading…');
+    // Per-URL timeout — CDN can hang silently in some networks.
+    // 5s is enough for a normal jsdelivr fetch; a blocked CDN gives up fast
+    // and we move on to the next URL (incl. local fallback) without making
+    // the user wait 36s before they see anything.
+    const PER_URL_TIMEOUT_MS = 5000;
+    for (const url of tryList) {
+      log(`[${this.name}] trying: ${url}`);
+      this._setCellStatus('loading ' + (url.split('/').pop() || url));
+      try {
+        const wantVrm = this.isVrmUrl(url);
+        const loader = new GLTFLoader();
+        if (wantVrm) loader.register((parser) => new VRMLoaderPlugin(parser));
+        const loadPromise = new Promise((res, rej) => loader.load(url, res, undefined, rej));
+        const timeoutPromise = new Promise((_, rej) =>
+          setTimeout(() => rej(new Error('timeout ' + PER_URL_TIMEOUT_MS + 'ms')), PER_URL_TIMEOUT_MS)
+        );
+        const gltf = await Promise.race([loadPromise, timeoutPromise]);
+
+        if (wantVrm && gltf.userData.vrm) {
+          // ===== VRM path =====
+          const vrm = gltf.userData.vrm;
+          VRMUtils.removeUnnecessaryVertices(vrm.scene);
+          VRMUtils.removeUnnecessaryJoints(vrm.scene);
+          const hb = vrm.humanoid?.getNormalizedBoneNode?.('head')
+                  || vrm.humanoid?.getRawBoneNode?.('head');
+          this.headBone = hb;
+          scene.add(vrm.scene);
+          this.vrm = vrm;
+          this.root = vrm.scene;
+          this.kind = 'vrm';
+          this.applyLayout();
+          if (this.layerIdx) this.setLayer(this.layerIdx);  // re-attach to cell layer
+          // Auto-aim this slot's cell camera at the actual head bone Y position.
+          // VRoid female heads sit at ~y=1.45, male ~y=1.65; default FACE_Y=1.55
+          // is wrong for both. Read it from the bone after the model is mounted.
+          if (this.cellCam && hb) {
+            const wp = new THREE.Vector3();
+            hb.getWorldPosition(wp);
+            const targetY = wp.y || 1.55;
+            this.cellCam.position.set(0, targetY, 0.55);
+            this.cellCam.lookAt(0, targetY, 0);
+            this.cellCam.updateProjectionMatrix();
+          }
+          // Real model loaded — drop the proxy placeholder if any
+          this._removeProxy();
+          this._setCellStatus(null);
+          log(`[${this.name}] VRM OK · ${url.split('/').pop()} · expressions=${Object.keys(vrm.expressionManager?.expressionMap || {}).length} · head=${hb?.name||'NONE'}`, 'ok');
+          if (this.name === 'self') diag(`avatar loaded: ${url.split('/').pop()}`, 'ok');
+          setTimeout(diagDismiss, 3000);
+          return true;
+        }
+
+        // ===== GLB path =====
+        const root = gltf.scene;
+        root.traverse(o => {
+          if (o.isMesh && o.morphTargetDictionary) {
+            this.morphs.push({ mesh:o, dict:o.morphTargetDictionary });
+          }
+          if (o.isBone) {
+            if (!this.headBone && /^(mixamorig)?Head$|Head_M$|^Head$/i.test(o.name)) this.headBone = o;
+          }
+        });
+        if (!this.headBone) {
+          root.traverse(o => {
+            if (!this.headBone && o.isBone && /head/i.test(o.name) && !/end/i.test(o.name)) this.headBone = o;
+          });
+        }
+        scene.add(root);
+        this.root = root;
+        this.kind = 'glb';
+        this.applyLayout(this.layoutX, this.layoutZ, this.layoutYaw);
+        // Real model loaded — drop the proxy placeholder if any
+        this._removeProxy();
+        this._setCellStatus(null);
+        log(`[${this.name}] GLB OK · ${url.split('/').pop()} · morphs=${this.morphs.length} · head=${this.headBone?.name||'NONE'}`, 'ok');
+        if (this.name === 'self') diag(`avatar loaded: ${url.split('/').pop()}`, 'ok');
+        setTimeout(diagDismiss, 3000);
+        return true;
+      } catch (err) {
+        log(`[${this.name}]   failed: ${(err.message || err)}`, 'err');
+      }
+    }
+    log(`[${this.name}] all URLs failed → proxy head`, 'err');
+    // Auto-open the log so the user immediately sees what went wrong
+    try { logEl.classList.add('show'); } catch {}
+    if (this.name === 'self') {
+      diag(`avatar load FAILED for all URLs — using proxy. Try ?local=1 or check console.`, 'err');
+    }
+    this._setCellStatus('using fallback face (CDN unreachable)');
+    if (!this.proxy) this.buildProxy();
+    if (this.layerIdx) this.setLayer(this.layerIdx);
+    return false;
+  }
+
+  /** Update / clear the in-cell status overlay. Pass null to remove it. */
+  _setCellStatus(text) {
+    if (!this.cellEl) return;
+    let el = this.cellEl.querySelector('.pcell-status');
+    if (text == null) { if (el) el.remove(); return; }
+    if (!el) {
+      el = document.createElement('div');
+      el.className = 'pcell-status';
+      this.cellEl.appendChild(el);
+    }
+    el.textContent = text;
+  }
+  /** Remove proxy mesh once a real model has loaded. */
+  _removeProxy() {
+    if (this.proxy?.group) {
+      try { scene.remove(this.proxy.group); } catch {}
+      this.proxy = null;
+    }
+  }
+
+  apply(bs, headQuat) {
+    if (this.kind === 'glb' && this.morphs.length) {
+      for (const { mesh, dict } of this.morphs) {
+        for (const k of ARKIT_KEYS) {
+          const i = dict[k]; if (i == null) continue;
+          const raw = bs[k]; if (raw == null) continue;
+          const g = GAIN_OVERRIDE[k] ?? GAIN;
+          const target = clamp01(raw * g);
+          const cur = mesh.morphTargetInfluences[i] || 0;
+          mesh.morphTargetInfluences[i] = cur + (target - cur) * (1 - SMOOTH);
+        }
+      }
+    } else if (this.kind === 'vrm' && this.vrm) {
+      // Map ARKit values into VRM expression slots (visemes + emotions + blink)
+      const em = this.vrm.expressionManager;
+      if (em) {
+        const set = (n, v) => { try { em.setValue(n, clamp01(v)); } catch{} };
+        // visemes
+        set('aa', (bs.jawOpen||0) * 1.6);
+        set('oh', ((bs.mouthFunnel||0) + (bs.mouthPucker||0)) * 1.2);
+        set('ih', ((bs.mouthSmileLeft||0) + (bs.mouthSmileRight||0)) * 0.4);
+        set('ee', ((bs.mouthSmileLeft||0) + (bs.mouthSmileRight||0)) * 0.5);
+        set('ou', (bs.mouthFunnel||0) * 1.0);
+        // blinks
+        set('blinkLeft',  (bs.eyeBlinkLeft||0) * 1.3);
+        set('blinkRight', (bs.eyeBlinkRight||0) * 1.3);
+        set('blink', Math.min((bs.eyeBlinkLeft||0), (bs.eyeBlinkRight||0)));
+        // emotions (these may or may not exist depending on VRM file)
+        const smile  = ((bs.mouthSmileLeft||0) + (bs.mouthSmileRight||0)) / 2;
+        const sad    = ((bs.mouthFrownLeft||0) + (bs.mouthFrownRight||0)) / 2;
+        const browDn = ((bs.browDownLeft||0)   + (bs.browDownRight||0))   / 2;
+        const surprise = (((bs.eyeWideLeft||0) + (bs.eyeWideRight||0))/2 + (bs.browInnerUp||0)) / 2;
+        set('happy',     smile * 1.6);
+        set('sad',       sad   * 1.6);
+        set('angry',     browDn * 1.4);
+        set('surprised', surprise * 1.4);
+        set('relaxed',   (bs.cheekSquintLeft||0 + bs.cheekSquintRight||0) * 0.3);
+        em.update();
+      }
+      this.vrm.update(0.016);
+    } else if (this.kind === 'proxy' && this.proxy) {
+      const bL = bs.eyeBlinkLeft ?? 0, bR = bs.eyeBlinkRight ?? 0;
+      this.proxy.eyeL.scale.y = Math.max(0.05, 1 - bL);
+      this.proxy.eyeR.scale.y = Math.max(0.05, 1 - bR);
+      const browUp = bs.browInnerUp ?? 0;
+      this.proxy.browL.position.y = 0.06 + browUp * 0.015;
+      this.proxy.browR.position.y = 0.06 + browUp * 0.015;
+      const jaw = bs.jawOpen ?? 0;
+      this.proxy.mouth.scale.y = 1 + jaw * 4;
+      const sm = ((bs.mouthSmileLeft ?? 0) + (bs.mouthSmileRight ?? 0)) / 2;
+      this.proxy.mouth.scale.x = 1 + sm * 0.6;
+    }
+    if (headQuat) {
+      const node = this.headBone || (this.proxy && this.proxy.group);
+      if (node) node.quaternion.slerp(headQuat, HEAD_LERP);
+    }
+  }
+}
+
+const selfAvatar = new AvatarSlot('self', 0);
+/** peerSlots: Map<peerId(1-255), AvatarSlot> — one entry per remote peer in the same room. */
+const peerSlots = new Map();
+let myPeerId = 0;
+
+// === face-to-face arc layout ===
+// Arrange (1 self + N peers) around z=0; each gently rotated to face the centre,
+// camera pulls back as more people join.
+// === Zoom-style grid: each slot lives in its own DOM cell, rendered via setScissor ===
+const gridEl = document.getElementById('grid');
+
+function createCell(slot, isSelf) {
+  // build DOM cell
+  const cell = document.createElement('div');
+  cell.className = 'pcell' + (isSelf ? ' self' : '');
+  cell.innerHTML = `
+    <div class="pcell-badge">${isSelf ? 'YOU' : 'FRIEND'}</div>
+    <div class="pcell-name"><span class="nm-text">${slot.displayName}</span></div>
+    <div class="pcell-react"></div>
+    <div class="pcell-status">loading…</div>
+  `;
+  gridEl.appendChild(cell);
+  slot.cellEl = cell;
+  // dedicated camera framing the avatar's HEAD (not the chest)
+  // FOV recomputed per frame based on cell aspect so the head always fits.
+  const cam = new THREE.PerspectiveCamera(32, 1, 0.05, 100);
+  cam.position.set(0, FACE_Y + 0.05, 0.55);   // slightly above eye line
+  cam.lookAt(0, FACE_Y + 0.02, 0);            // look at the face
+  // NOTE: no layer separation — we use per-frame visibility toggling instead
+  // (layers had subtle issues with PBR + skinned meshes; visibility is bulletproof)
+  slot.cellCam = cam;
+  // Build a proxy face IMMEDIATELY so the cell never appears empty while the
+  // real GLB/VRM is downloading from CDN. The proxy is removed in load() once
+  // the real model is in scene.
+  if (!slot.proxy && !slot.root) {
+    try { slot.buildProxy(); } catch (e) { log('proxy build err: ' + e.message, 'err'); }
+  }
+  return 0;
+}
+
+function disposeCell(slot) {
+  if (slot.cellEl) { slot.cellEl.remove(); slot.cellEl = null; }
+  slot.cellCam = null;
+}
+
+function layoutAvatars() {
+  // 1) make sure self always has a cell
+  if (!selfAvatar.cellEl) createCell(selfAvatar, true);
+  // 2) order: SELF first, then peers in join order
+  const all = [selfAvatar, ...peerSlots.values()];
+  const n = all.length;
+  // 3) update grid CSS class for the participant count (Zoom-like responsive)
+  gridEl.className = '';
+  gridEl.classList.add('n' + Math.min(n, 6));
+  // 4) reorder DOM children so SELF is in the natural reading position (top-left)
+  for (const s of all) {
+    if (s.cellEl && s.cellEl.parentNode === gridEl) gridEl.appendChild(s.cellEl);
+  }
+  // 5) every avatar sits at world origin, only the camera per cell differs
+  for (const s of all) {
+    if (typeof s.applyLayout === 'function') s.applyLayout();
+  }
+  refreshLabels();
+}
+
+function refreshHaloPositions() {
+  // halos are part of the per-slot scene, anchored at FACE_Y in front of the head
+  if (selfAvatar.halo) selfAvatar.halo.mesh.position.set(0, FACE_Y, -0.25);
+  for (const s of peerSlots.values()) {
+    if (s.halo) s.halo.mesh.position.set(0, FACE_Y, -0.25);
+  }
+}
+
+function refreshLabels() {
+  const wrap = document.getElementById('labels');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  const all = [{ s: selfAvatar, role: 'YOU',    name: myDisplayName || 'you',  isSelf: true  },
+               ...[...peerSlots.values()].map(s => ({ s, role: 'FRIEND', name: s.displayName, isSelf: false }))];
+  all.forEach(item => {
+    const d = document.createElement('div');
+    d.className = 'lbl' + (item.isSelf ? '' : ' peer');
+    d.innerHTML = `<b>${item.role}</b><span class="nm">${item.name}</span>`;
+    wrap.appendChild(d);
+  });
+}
+
+// (Single global camera kept only for fallback / scene background; per-cell cameras do the real work.)
+function placeCameraForCount(/* unused in grid mode */) {
+  camera.position.set(0, FACE_Y, 1.5);
+  camera.fov = 32;
+  camera.lookAt(0, FACE_Y, 0);
+  camera.updateProjectionMatrix();
+}
+
+// === Multi-viewport renderer using per-frame VISIBILITY toggling ===
+// For each cell, we hide everyone else's avatar+halo, then render with that
+// cell's camera into the cell's scissored viewport. Bulletproof vs layers.
+//
+// IMPORTANT: Three.js r150+ setViewport/setScissor take CSS pixels and the
+// renderer multiplies by pixelRatio internally. Earlier code wrongly pre-
+// multiplied by dpr, blowing each cell's viewport up to 2× / 4× actual size,
+// so all 4 cells overlapped → looked like ONE big face split across cells.
+function renderGridMode() {
+  const all = [selfAvatar, ...peerSlots.values()];
+  if (all.length === 0) return;
+  const cssH = window.innerHeight;
+
+  // Hide everyone's renderable bits up front
+  function showSlot(s, on) {
+    if (s.root)         s.root.visible         = on;
+    if (s.proxy?.group) s.proxy.group.visible  = on;
+    if (s.halo?.mesh)   s.halo.mesh.visible    = on;
+  }
+  for (const s of all) showSlot(s, false);
+
+  // Clear once across the whole canvas
+  renderer.setScissorTest(false);
+  renderer.setViewport(0, 0, window.innerWidth, window.innerHeight);
+  renderer.clear();
+  renderer.setScissorTest(true);
+
+  for (const slot of all) {
+    if (!slot.cellEl || !slot.cellCam) continue;
+    const r = slot.cellEl.getBoundingClientRect();
+    if (r.width < 8 || r.height < 8) continue;
+    showSlot(slot, true);                 // make only this slot visible
+    // CSS pixels — Three.js applies pixelRatio internally, do NOT pre-multiply.
+    const x = Math.max(0, Math.floor(r.left));
+    const y = Math.max(0, Math.floor(cssH - r.bottom));
+    const w = Math.floor(r.width);
+    const h = Math.floor(r.height);
+    renderer.setViewport(x, y, w, h);
+    renderer.setScissor(x, y, w, h);
+    // Dynamic FOV so the head fits regardless of cell aspect ratio.
+    // Target: head occupies ~70% of the smaller dimension. Head ~25 cm tall, ~22 cm wide.
+    const aspect = r.width / r.height;
+    slot.cellCam.aspect = aspect;
+    const targetVert = 0.36;        // metres of vertical world span we want to see
+    const distance   = 0.55;        // camera distance from look-at point
+    let vFovRad = 2 * Math.atan(targetVert / 2 / distance);
+    // If cell is narrower than ~aspect 0.7 (tall portrait), widen so head fits horizontally
+    const horizSpanAtV = targetVert * aspect;
+    const minHorizSpan = 0.28;
+    if (horizSpanAtV < minHorizSpan) {
+      const requiredVert = minHorizSpan / aspect;
+      vFovRad = 2 * Math.atan(requiredVert / 2 / distance);
+    }
+    slot.cellCam.fov = THREE.MathUtils.radToDeg(vFovRad);
+    slot.cellCam.updateProjectionMatrix();
+    renderer.render(scene, slot.cellCam);
+    showSlot(slot, false);                // hide again before next cell
+  }
+
+  // Restore visibility (for any other inspection/render path)
+  for (const s of all) showSlot(s, true);
+  renderer.setScissorTest(false);
+}
+
+// ====== MediaPipe ======
+let landmarker = null;
+async function initMP() {
+  log('loading MediaPipe…');
+  const mp = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.9/vision_bundle.mjs');
+  const fileset = await mp.FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.9/wasm');
+  landmarker = await mp.FaceLandmarker.createFromOptions(fileset, {
+    baseOptions: { modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task', delegate: 'GPU' },
+    outputFaceBlendshapes: true, outputFacialTransformationMatrixes: true,
+    runningMode: 'VIDEO', numFaces: 1
+  });
+  stats.mp = 'ok'; log('MediaPipe ready', 'ok');
+}
+
+const video = $('cam');
+async function initCamera() {
+  log('requesting camera…');
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video: { facingMode: 'user', width: 640, height: 480 }, audio: false
+  });
+  video.srcObject = stream;
+  await new Promise(r => video.onloadedmetadata = r);
+  await video.play();
+  stats.cam = 'ok'; log('camera ready', 'ok');
+}
+
+// ====== 8-class action recogniser (LSTM) ======
+const ACTION_LABELS = ['neutral','wink_left','wink_right','smile_big','surprise','frown','mouth_o','tongue_out'];
+const ACTION_COLOR  = {
+  smile_big: 0xff8a55, surprise: 0x6cf, mouth_o: 0xa3e635,
+  frown: 0xff5a5a, wink_left: 0xb45cff, wink_right: 0xb45cff, tongue_out: 0xff8ab4
+};
+const SYNC_EMOJI = {
+  smile_big: '💞', surprise: '✨', mouth_o: '🎵', frown: '🫂',
+  wink_left: '🌟', wink_right: '🌟', tongue_out: '🤪'
+};
+
+let actionModel = null;
+const window30 = []; const VOTE_WINDOW = 2; let voteHistory = []; let lastTriggerAt = 0;
+const CONF_THRESHOLD = 0.5; const COOLDOWN_MS = 500; const WINDOW_LEN = 30;
+let inferTick = 0; let inferBusy = false; let inferErrorCount = 0;
+
+let myCurrentAction = 'neutral';
+let lastSyncAt = 0;
+let pendingAction = null;
+let myDisplayName = '';
+
+async function initAction() {
+  try {
+    log('loading TFJS…');
+    await new Promise((res, rej) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js';
+      s.onload = res; s.onerror = rej; document.head.appendChild(s);
+    });
+    log('loading action model: ' + ACTION_MODEL_URL);
+    actionModel = await tf.loadLayersModel(ACTION_MODEL_URL);
+    log('action model OK', 'ok');
+  } catch (e) {
+    log('action model unavailable (mood sync disabled): ' + (e.message||e));
+  }
+}
+
+function maybeInfer(bs) {
+  if (FLAG_NOFX || !actionModel || inferBusy) return;
+  const row = ARKIT_KEYS.map(k => bs[k] ?? 0);
+  window30.push(row);
+  if (window30.length > WINDOW_LEN) window30.shift();
+  if (window30.length < WINDOW_LEN) return;
+  if (++inferTick % INFER_EVERY !== 0) return;
+
+  inferBusy = true;
+  try {
+    const data = tf.tidy(() => {
+      const x = tf.tensor3d([window30]);
+      let y = actionModel.predict(x);
+      if (Array.isArray(y)) y = y[0];
+      return y.dataSync();
+    });
+    let bestI = 0, bestV = 0;
+    for (let i = 0; i < data.length; i++) if (data[i] > bestV) { bestV = data[i]; bestI = i; }
+    const label = ACTION_LABELS[bestI] || '?';
+    voteHistory.push(label);
+    if (voteHistory.length > VOTE_WINDOW) voteHistory.shift();
+    const allSame = voteHistory.length === VOTE_WINDOW && voteHistory.every(x => x === label);
+    const now = performance.now();
+    if (allSame && bestV > CONF_THRESHOLD && now - lastTriggerAt > COOLDOWN_MS && label !== 'neutral') {
+      lastTriggerAt = now;
+      myCurrentAction = label;
+      onMyAction(label);
+    }
+  } catch (e) {
+    inferErrorCount++;
+    log(`infer err #${inferErrorCount}: ${e.message||e}`, 'err');
+    if (inferErrorCount > 5) { actionModel = null; }
+  } finally { inferBusy = false; }
+}
+
+function onMyAction(label) {
+  if (selfAvatar.halo && ACTION_COLOR[label]) selfAvatar.halo.mat.color.setHex(ACTION_COLOR[label]);
+  if (selfAvatar.halo) selfAvatar.halo.mat.opacity = 0.55;
+  pendingAction = label;
+  checkSync();
+}
+
+function onPeerAction(slot, label) {
+  slot.lastAction = label;
+  if (slot.halo && ACTION_COLOR[label]) slot.halo.mat.color.setHex(ACTION_COLOR[label]);
+  if (slot.halo) slot.halo.mat.opacity = 0.55;
+  checkSync();
+}
+
+// Mood sync: my action + ANY peer doing same action within 2s.
+function checkSync() {
+  if (myCurrentAction === 'neutral') return;
+  let matched = false;
+  for (const s of peerSlots.values()) {
+    if (s.lastAction === myCurrentAction) { matched = true; break; }
+  }
+  if (!matched) return;
+  const now = performance.now();
+  if (now - lastSyncAt < 2000) return;
+  lastSyncAt = now;
+  triggerBurst(SYNC_EMOJI[myCurrentAction] || '✨');
+  spawnFloater(SYNC_EMOJI[myCurrentAction] || '✨', 16);
+  log(`✨ MOOD SYNC: ${myCurrentAction}`, 'ok');
+}
+
+function triggerBurst(emoji) {
+  const b = $('burst');
+  b.textContent = emoji; b.classList.add('show');
+  setTimeout(() => b.classList.remove('show'), 1200);
+}
+
+function spawnFloater(emoji, n=6, originX=null) {
+  const layer = $('fx');
+  for (let i = 0; i < n; i++) {
+    const e = document.createElement('div');
+    e.className = 'fx-emoji';
+    e.textContent = emoji;
+    const ox = originX != null ? originX : (40 + Math.random()*20);
+    e.style.left = ox + 'vw';
+    e.style.top  = (60 + Math.random()*15) + 'vh';
+    e.style.setProperty('--dx', (Math.random()*240-120) + 'px');
+    e.style.setProperty('--dy', (-180 - Math.random()*180) + 'px');
+    layer.appendChild(e);
+    setTimeout(() => e.remove(), 1700);
+  }
+}
+
+// ====== reactions dock ======
+let pendingReaction = null;
+document.querySelectorAll('#dock button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const e = btn.dataset.react;
+    // local pop in MY cell so I see immediate feedback
+    if (selfAvatar.cellEl) {
+      const r = selfAvatar.cellEl.querySelector('.pcell-react');
+      r.textContent = e;
+      r.classList.remove('fly'); void r.offsetWidth; r.classList.add('fly');
+    }
+    pendingReaction = e;       // queued to send on next packet
+  });
+});
+
+// ====== WebSocket pairing layer ======
+let ws = null;
+let lastSendAt = 0;
+let pingSentAt = 0;
+
+function connectRelay(url, room, name, avatarKey, customUrl) {
+  log('connecting relay: ' + url);
+  try { ws = new WebSocket(url); }
+  catch (e) { log('ws err: ' + e.message, 'err'); return; }
+
+  ws.binaryType = 'arraybuffer';
+  ws.onopen = () => {
+    log('ws OPEN — joining room ' + room, 'ok');
+    ws.send(JSON.stringify({ type:'join', room, name, avatarKey, customUrl }));
+    setConnState('waiting');
+  };
+  ws.onmessage = (ev) => {
+    if (typeof ev.data === 'string') {
+      try { handleControlMessage(JSON.parse(ev.data)); } catch(e) {}
+      return;
+    }
+    handleBinaryPacket(ev.data);
+  };
+  ws.onerror = () => log('ws ERR', 'err');
+  ws.onclose = () => {
+    log('ws CLOSED — reconnecting in 2s', 'err');
+    setConnState('lost');
+    setTimeout(() => connectRelay(url, room, name, avatarKey, customUrl), 2000);
+  };
+}
+
+// Resolve avatar clash: if requested key is already used by self or another
+// peer, deterministically remap to an unused one based on peer id, so every
+// client in the room agrees on who looks like what.
+function resolveAvatarKey(requestedKey, peerId) {
+  if (requestedKey === 'custom') return requestedKey;  // custom URLs unique by construction
+  const used = new Set();
+  used.add(myAvatarKey);
+  for (const s of peerSlots.values()) used.add(s.avatarKey);
+  if (!used.has(requestedKey)) return requestedKey;
+  // try other built-in keys
+  const candidates = Object.keys(AVATAR_BANK).filter(k => k !== 'custom' && !used.has(k));
+  if (candidates.length === 0) return requestedKey;       // out of options, keep as-is
+  return candidates[peerId % candidates.length];
+}
+
+async function addPeer(id, name, avatarKey, customUrl) {
+  if (peerSlots.has(id) || id === myPeerId || id === 0) return;
+  const resolvedKey = resolveAvatarKey(avatarKey || 'brunette', id);
+  if (resolvedKey !== avatarKey) {
+    log(`peer ${id} requested ${avatarKey}, remapped to ${resolvedKey} (clash avoid)`);
+  }
+  const slot = new AvatarSlot('peer-' + id);
+  // disambiguate display name if duplicate
+  let dispName = name || `peer ${id}`;
+  const existingNames = new Set([myDisplayName, ...[...peerSlots.values()].map(s => s.displayName)]);
+  if (existingNames.has(dispName)) dispName = `${dispName}#${id}`;
+  slot.displayName = dispName;
+  slot.avatarKey = resolvedKey;
+  // create the DOM cell + dedicated camera + layer
+  createCell(slot, false);
+  slot.setNameTag(dispName, false);
+  // pick a halo color for this slot from the palette
+  const colorIdx = (peerSlots.size) % PEER_COLORS.length;
+  makeHaloFor(slot, PEER_COLORS[colorIdx]);
+  peerSlots.set(id, slot);
+  layoutAvatars();
+  refreshHaloPositions();
+  const urls = (resolvedKey === 'custom' && customUrl)
+    ? [customUrl]
+    : (AVATAR_BANK[resolvedKey]?.urls || AVATAR_BANK.brunette.urls);
+  await slot.load(urls);
+  layoutAvatars();
+  refreshHaloPositions();
+}
+function removePeer(id) {
+  const slot = peerSlots.get(id);
+  if (!slot) return;
+  if (slot.root)  scene.remove(slot.root);
+  if (slot.proxy) scene.remove(slot.proxy.group);
+  if (slot.halo)  scene.remove(slot.halo.mesh);
+  disposeCell(slot);
+  peerSlots.delete(id);
+  layoutAvatars();
+}
+
+function handleControlMessage(msg) {
+  if (msg.type === 'roster') {
+    myPeerId = msg.me;
+    log(`roster: me=${msg.me}, ${msg.peers.length} peer(s) already in room`, 'ok');
+    setConnState(msg.peer_count >= 2 ? 'connected' : 'waiting');
+    for (const p of msg.peers) addPeer(p.id, p.name, p.avatarKey, p.customUrl);
+  } else if (msg.type === 'peer_join') {
+    log('peer joined: ' + (msg.name || ''), 'ok');
+    setConnState('connected');
+    addPeer(msg.id, msg.name, msg.avatarKey, msg.customUrl);
+  } else if (msg.type === 'peer_leave') {
+    log('peer left: ' + (msg.name || ''), 'err');
+    removePeer(msg.id);
+    if (peerSlots.size === 0) setConnState('waiting');
+  } else if (msg.type === 'pong') {
+    stats.rtt = Math.round(performance.now() - pingSentAt);
+  } else if (msg.type === 'room_status') {
+    setConnState(msg.peer_count >= 2 ? 'connected' : 'waiting');
+  } else if (msg.type === 'reaction') {
+    // pop the emoji INSIDE the source peer's cell (Zoom-style reaction overlay)
+    const slot = peerSlots.get(msg.from);
+    if (slot && slot.cellEl) {
+      const r = slot.cellEl.querySelector('.pcell-react');
+      r.textContent = msg.emoji || '✨';
+      r.classList.remove('fly');
+      void r.offsetWidth;          // force reflow to restart animation
+      r.classList.add('fly');
+    }
+  }
+}
+
+function viewportXForSlot(slot) {
+  // approximate screen X (in vw) where a slot at world (layoutX, FACE_Y, layoutZ) projects.
+  const v = new THREE.Vector3(slot.layoutX, FACE_Y, slot.layoutZ);
+  v.project(camera);
+  return ((v.x + 1) / 2) * 100;  // 0..100 vw
+}
+
+function setConnState(state) {
+  const p = $('connPill');
+  p.className = 'pill ' + state;
+  p.textContent = state === 'connected' ? 'paired' :
+                  state === 'waiting'   ? 'waiting for friend' :
+                  state === 'lost'      ? 'reconnecting' : state;
+}
+
+// Binary packet: 8B header + 16B head quat + 208B blendshapes = 232B per frame
+const PACKET_BYTES = 8 + 16 + 52*4;
+function encodePacket(bs, headQuat, actionIdx) {
+  const buf = new ArrayBuffer(PACKET_BYTES);
+  const dv = new DataView(buf); const f32 = new Float32Array(buf);
+  dv.setUint8(0, 1); dv.setUint8(1, actionIdx);
+  f32[2] = headQuat?.x ?? 0; f32[3] = headQuat?.y ?? 0;
+  f32[4] = headQuat?.z ?? 0; f32[5] = headQuat?.w ?? 1;
+  for (let i = 0; i < 52; i++) f32[6 + i] = bs[ARKIT_KEYS[i]] ?? 0;
+  return buf;
+}
+function decodePacket(buf) {
+  const dv = new DataView(buf); const f32 = new Float32Array(buf);
+  if (dv.getUint8(0) !== 1) return null;
+  const actionIdx = dv.getUint8(1);
+  const headQ = new THREE.Quaternion(f32[2], f32[3], f32[4], f32[5]);
+  const bs = {};
+  for (let i = 0; i < 52; i++) bs[ARKIT_KEYS[i]] = f32[6 + i];
+  return { bs, headQ, actionIdx };
+}
+function handleBinaryPacket(buf) {
+  // Server wraps with 1-byte senderId → expected 233 bytes.
+  // Also accept legacy 232-byte (no senderId) and route to first peer if any.
+  if (!(buf instanceof ArrayBuffer)) return;
+  let senderId = 0; let inner = buf;
+  if (buf.byteLength === PACKET_BYTES + 1) {
+    const dv = new DataView(buf);
+    senderId = dv.getUint8(0);
+    inner = buf.slice(1);
+  } else if (buf.byteLength !== PACKET_BYTES) {
+    return;
+  }
+  const pkt = decodePacket(inner); if (!pkt) return;
+  // route to slot — if unknown sender, add a placeholder peer (server may have race)
+  let slot = peerSlots.get(senderId);
+  if (!slot) {
+    if (senderId === 0) {
+      // legacy or unattributed — pick first peer slot, otherwise create id=255 fallback
+      slot = peerSlots.values().next().value;
+      if (!slot) {
+        addPeer(255, 'unknown', 'brunette', null);
+        slot = peerSlots.get(255);
+      }
+    } else {
+      // unknown but attributed — auto-create with default avatar
+      addPeer(senderId, `peer ${senderId}`, 'brunette', null);
+      slot = peerSlots.get(senderId);
+    }
+  }
+  if (!slot) return;
+  slot.apply(pkt.bs, pkt.headQ);
+  if (pkt.actionIdx < ACTION_LABELS.length) {
+    const lbl = ACTION_LABELS[pkt.actionIdx];
+    if (lbl !== 'neutral') onPeerAction(slot, lbl);
+    else slot.lastAction = 'neutral';
+  }
+}
+
+function maybeSend(bs, headQuat) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  const now = performance.now();
+  if (now - lastSendAt < SEND_INTERVAL) return;
+  lastSendAt = now;
+  const actionIdx = pendingAction != null
+    ? Math.max(0, ACTION_LABELS.indexOf(pendingAction))
+    : 255;
+  pendingAction = null;
+  const buf = encodePacket(bs, headQuat, actionIdx);
+  ws.send(buf);
+  stats.bytesPerSec += buf.byteLength;
+  // also flush pending manual reaction (text frame)
+  if (pendingReaction) {
+    try { ws.send(JSON.stringify({ type:'reaction', emoji: pendingReaction })); } catch {}
+    pendingReaction = null;
+  }
+}
+
+setInterval(() => {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    pingSentAt = performance.now();
+    try { ws.send(JSON.stringify({ type:'ping' })); } catch {}
+  }
+}, 3000);
+
+// ====== Main loop ======
+let lastTs = 0, frameStart = performance.now(), frameCount = 0;
+let lastSuccessfulFrame = performance.now();
+let loopErrorCount = 0; let lastDetectAt = 0;
+const _mat = new THREE.Matrix4();
+const _targetQ = new THREE.Quaternion();
+const _euler = new THREE.Euler();
+
+function loop() {
+  try {
+    const now = performance.now();
+    const shouldDetect = video.readyState >= 2 && landmarker
+                         && !video.paused
+                         && (now - lastDetectAt >= DETECT_INTERVAL);
+    if (shouldDetect) {
+      lastDetectAt = now;
+      const ts = Math.max(lastTs + 1, Math.floor(now));
+      lastTs = ts;
+      let r = null;
+      try { r = landmarker.detectForVideo(video, ts); }
+      catch (e) { loopErrorCount++; log(`detectForVideo err: ${e.message||e}`, 'err'); }
+      if (r && r.faceBlendshapes && r.faceBlendshapes.length) {
+        const cats = r.faceBlendshapes[0].categories;
+        const bs = {}; for (const c of cats) bs[c.categoryName] = c.score;
+        let headQ = null;
+        if (r.facialTransformationMatrixes && r.facialTransformationMatrixes[0]) {
+          try {
+            _mat.fromArray(r.facialTransformationMatrixes[0].data);
+            _targetQ.setFromRotationMatrix(_mat);
+            if (HEAD_FLIP) {
+              _euler.setFromQuaternion(_targetQ, 'YXZ');
+              if (HEAD_FLIP.includes('x')) _euler.x = -_euler.x;
+              if (HEAD_FLIP.includes('y')) _euler.y = -_euler.y;
+              if (HEAD_FLIP.includes('z')) _euler.z = -_euler.z;
+              _targetQ.setFromEuler(_euler);
+            }
+            headQ = _targetQ.clone();
+          } catch (e) { log('headpose err: ' + e.message, 'err'); }
+        }
+        try { selfAvatar.apply(bs, headQ); }
+        catch (e) { log('applyBs err: ' + e.message, 'err'); }
+        lastSuccessfulFrame = now;
+        try { maybeInfer(bs); } catch (e) { log('infer-outer err: ' + e.message, 'err'); }
+        maybeSend(bs, headQ);
+      }
+      frameCount++;
+      if (now - frameStart > 1000) {
+        stats.fps = frameCount; frameCount = 0; frameStart = now;
+      }
+      if (now - lastSuccessfulFrame > 3000) {
+        lastSuccessfulFrame = now;
+        if (video.paused) video.play().catch(()=>{});
+      }
+    }
+    // halo opacity decay for every active slot
+    if (selfAvatar.halo && selfAvatar.halo.mat.opacity > 0.40)
+      selfAvatar.halo.mat.opacity -= 0.005;
+    for (const s of peerSlots.values()) {
+      if (s.halo && s.halo.mat.opacity > 0.18) s.halo.mat.opacity -= 0.005;
+      if (s.vrm) s.vrm.update(0.016);
+    }
+    if (selfAvatar.vrm) selfAvatar.vrm.update(0.016);
+    renderGridMode();
+  } catch (e) {
+    loopErrorCount++; log(`loop err #${loopErrorCount}: ${e.message||e}`, 'err');
+  }
+  requestAnimationFrame(loop);
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && video && video.paused) {
+    video.play().catch(e => log('video.play() rejected: ' + e.message, 'err'));
+  }
+});
+
+// ====== Avatar card picker (visual UI) ======
+// Pick a RANDOM default avatar so two windows on the same Mac don't both auto-pick "brunette"
+// and look identical. Once the user actually clicks a card, that choice is saved.
+// Only GLB avatars in the random pool — VRM anime models occasionally render as
+// untextured naked bodies when their VRM-MaterialMtoon textures fail to fetch.
+// Users can still MANUALLY pick anime_girl / anime_boy from the grid if they want.
+const AV_BUILTIN_KEYS = ['brunette','blonde','asian'];
+// Sanity-clean: if the cached avatar key was removed/renamed in a newer build,
+// drop it so we don't try to load a non-existent URL chain.
+const _cachedAv = localStorage.getItem('veil_myav');
+if (_cachedAv && !AVATAR_BANK[_cachedAv]) {
+  console.warn('[VEIL] cached veil_myav =', _cachedAv, 'no longer exists in AVATAR_BANK — clearing');
+  localStorage.removeItem('veil_myav');
+}
+// ?myav=brunette URL flag forces a specific avatar (debug shortcut).
+let myAvatarKey = (FORCE_AV && AVATAR_BANK[FORCE_AV])
+  ? FORCE_AV
+  : (localStorage.getItem('veil_myav')
+     || AV_BUILTIN_KEYS[Math.floor(Math.random() * AV_BUILTIN_KEYS.length)]);
+
+function buildAvatarGrid() {
+  const grid = $('avgrid');
+  grid.innerHTML = '';
+  for (const [key, info] of Object.entries(AVATAR_BANK)) {
+    const card = document.createElement('div');
+    card.className = 'avcard' + (key === myAvatarKey ? ' sel' : '');
+    card.innerHTML = `
+      <div class="badge ${info.style}">${info.style.toUpperCase()}</div>
+      <div class="ico">${info.icon}</div>
+      <div class="nm">${info.name}</div>
+      <div class="ty">${info.type.toUpperCase()}</div>
+    `;
+    card.addEventListener('click', () => {
+      myAvatarKey = key;
+      buildAvatarGrid();
+      $('customRow').classList.toggle('show', key === 'custom');
+      if (key === 'custom') $('customUrlInput').value = localStorage.getItem('veil_mycu') || '';
+    });
+    grid.appendChild(card);
+  }
+}
+
+$('customUrlInput')?.addEventListener('input', (e) => {
+  localStorage.setItem('veil_mycu', e.target.value);
+});
+
+// 🎲 Random button — pick a fresh avatar (skip current + custom)
+$('btnRandom')?.addEventListener('click', () => {
+  const pool = AV_BUILTIN_KEYS.filter(k => k !== myAvatarKey);
+  myAvatarKey = pool[Math.floor(Math.random() * pool.length)];
+  buildAvatarGrid();
+  $('customRow').classList.remove('show');
+});
+
+// ====== Start screen wiring ======
+const sp = new URLSearchParams(location.search);
+$('myNameInput').value      = sp.get('name')  || localStorage.getItem('veil_name')  || '';
+$('roomCodeInput').value    = sp.get('room')  || localStorage.getItem('veil_room')  || '';
+$('relayInput').value       = sp.get('relay') || localStorage.getItem('veil_relay') || `ws://${location.hostname || 'localhost'}:8765`;
+buildAvatarGrid();
+
+$('btnEnd').addEventListener('click', () => {
+  if (ws) try { ws.close(); } catch {}
+  location.reload();
+});
+
+$('btnGo').addEventListener('click', async () => {
+  const myName = $('myNameInput').value.trim() || 'me';
+  const room   = $('roomCodeInput').value.trim();
+  const relay  = $('relayInput').value.trim();
+  if (!room)  { alert('Please pick a room code (share it with your friend).'); return; }
+  if (!relay) { alert('Relay server URL required.'); return; }
+
+  const myCu = localStorage.getItem('veil_mycu') || '';
+  if (myAvatarKey === 'custom' && !myCu) {
+    alert('Switch to a built-in avatar or paste a .glb/.vrm URL.'); return;
+  }
+
+  const myUrls = (myAvatarKey === 'custom') ? [myCu] : (AVATAR_BANK[myAvatarKey].urls);
+
+  localStorage.setItem('veil_name',  myName);
+  localStorage.setItem('veil_room',  room);
+  localStorage.setItem('veil_relay', relay);
+  localStorage.setItem('veil_myav',  myAvatarKey);
+
+  $('btnGo').textContent = 'Connecting…';
+  $('btnGo').disabled = true;
+  try {
+    log('--- boot ---');
+    log(`name=${myName} room=${room} myAv=${myAvatarKey}`);
+    myDisplayName = myName;
+    $('roomLabel').textContent = '#' + room;
+    refreshLabels();
+
+    // Build the self cell first (creates DOM card + dedicated camera + layer +
+    // proxy face placeholder, so the cell never appears empty while CDN downloads)
+    selfAvatar.avatarKey = myAvatarKey;
+    selfAvatar.displayName = myName;
+    createCell(selfAvatar, true);
+    selfAvatar.setNameTag(myName, true);
+    selfAvatar.applyLayout();
+    makeHaloFor(selfAvatar, SELF_COLOR);
+    if (selfAvatar.halo) selfAvatar.halo.mat.opacity = 0.45;
+    layoutAvatars();
+
+    // Hide the start screen and start the render loop NOW, before avatar download.
+    // This guarantees the user always sees a face (proxy) and grid layout, even
+    // while the GLB/VRM is still streaming in from CDN.
+    $('start').style.display = 'none';
+    requestAnimationFrame(loop);
+
+    await Promise.all([
+      initCamera(),
+      initMP(),
+      selfAvatar.load(myUrls).then(ok => stats.avatar = ok ? 'ok' : 'proxy'),
+      initAction(),
+    ]);
+    layoutAvatars();
+    refreshHaloPositions();
+
+    // Tell the room which avatar I picked, so peers can render me correctly
+    connectRelay(relay, room, myName, myAvatarKey, myAvatarKey === 'custom' ? myCu : null);
+    log('--- running ---', 'ok');
+  } catch (e) {
+    log('BOOT FAIL: ' + (e.message || e), 'err');
+    diag('BOOT FAIL: ' + (e.message || e), 'err');
+    $('btnGo').textContent = 'Retry';
+    $('btnGo').disabled = false;
+    logEl.classList.add('show');
+  }
+});
+
+// ====== Diagnostic / quick-render modes ======
+//
+// ?demo=1     bypass start screen entirely. Auto-loads the chosen avatar
+//             (defaults to 'brunette' or whatever's in localStorage / ?myav).
+//             Skips camera + relay so it's a pure 3D rendering smoke-test.
+//             If you can see a face → rendering works, problem is start-screen UX.
+//             If still blank → real loader/path problem; check the top banner.
+//
+// ?local=1    force local-first URL ordering. Use when CDN is blocked.
+//
+// ?diag=1     pre-flight HEAD-probe every model URL and print results to the
+//             top banner. Doesn't load anything 3D. Use to confirm whether
+//             the HTTP server is actually serving ./models/*.
+//
+async function runDiagProbe() {
+  const urls = [LOCAL_GLB, LOCAL_VRM_V1, LOCAL_VRM_ALT,
+                'https://cdn.jsdelivr.net/gh/met4citizen/TalkingHead@main/avatars/brunette.glb'];
+  const results = [];
+  for (const u of urls) {
+    try {
+      const t0 = performance.now();
+      const r = await fetch(u, { method: 'HEAD', cache: 'no-store' });
+      const dt = Math.round(performance.now() - t0);
+      results.push(`${r.ok ? 'OK ' : '✗ '} ${r.status}  ${dt}ms  ${u}`);
+    } catch (e) {
+      results.push(`ERR  ${e.message || e}  ${u}`);
+    }
+  }
+  diag('DIAG (HEAD probes):\n' + results.join('\n'),
+       results.every(r => r.startsWith('OK')) ? 'ok' : 'warn');
+  console.table(results);
+}
+if (Q.has('diag')) runDiagProbe();
+
+if (FLAG_DEMO) {
+  // Auto-fill defaults and trigger the Go button so the user can verify the
+  // 3D pipeline without filling out the form / granting camera. The Promise.all
+  // inside btnGo will fail on initCamera (no permission) but the avatar load
+  // path runs to completion and the loop renders the proxy + real model.
+  diag('demo mode — auto-loading avatar without camera', 'info');
+  $('myNameInput').value   = $('myNameInput').value   || 'demo';
+  $('roomCodeInput').value = $('roomCodeInput').value || 'demo-room';
+  setTimeout(() => $('btnGo').click(), 200);
+}
+
+diag(FLAG_LOCAL ? 'modules ready (LOCAL-first mode)' : 'modules ready', 'info');
+// Auto-dismiss the boot banner after 4s unless an error has flipped it red.
+setTimeout(() => {
+  if (_diag && !_diag.dataset.sticky) diagDismiss();
+}, 4000);
+</script>
+</body>
+</html>

@@ -1,0 +1,16 @@
+# 在 Mac M1/M2 上：
+#   pip install -r requirements.txt --break-system-packages
+# 或者用 conda env：
+#   conda create -n facemocap python=3.10 -y && conda activate facemocap
+#   pip install -r requirements.txt
+#
+# 注意 tensorflow-macos + tensorflow-metal 是 Apple Silicon 的 GPU 加速版。
+# 如果是 Intel Mac 改装普通 tensorflow==2.15.* 即可。
+
+tensorflow-macos==2.15.0; sys_platform == "darwin" and platform_machine == "arm64"
+tensorflow-metal==1.1.0;  sys_platform == "darwin" and platform_machine == "arm64"
+tensorflow==2.15.0;       sys_platform != "darwin" or platform_machine != "arm64"
+tensorflowjs==4.17.0
+numpy>=1.24,<2
+scikit-learn>=1.3
+matplotlib>=3.7

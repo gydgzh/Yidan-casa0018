@@ -1,0 +1,20 @@
+<!--
+把这几个键加进 Xcode 工程的 Info.plist 里。XcodeNew 模板里现在没有 raw plist 文件,
+你可以用 Xcode 项目 → Info → "+" 按钮添加,或者切到 Source 模式粘贴下面 dict 内的 4 个 key。
+-->
+<key>NSCameraUsageDescription</key>
+<string>This app uses the front camera to capture facial expressions for avatar animation.</string>
+
+<key>NSLocalNetworkUsageDescription</key>
+<string>This app sends face tracking data to a relay server on your local network.</string>
+
+<key>NSBonjourServices</key>
+<array>
+    <string>_ws._tcp</string>
+</array>
+
+<!-- 强制竖屏,避免 ARKit 旋转矩阵歧义 -->
+<key>UISupportedInterfaceOrientations</key>
+<array>
+    <string>UIInterfaceOrientationPortrait</string>
+</array>

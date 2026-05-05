@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>NSCameraUsageDescription</key>
+    <string>FaceMocap 需要摄像头进行面部追踪，以驱动虚拟人表情。</string>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>FaceMocap 需要本地网络连接，将面部数据发送到 Mac 上的虚拟人渲染服务。</string>
+</dict>
+</plist>

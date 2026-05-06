@@ -24,7 +24,17 @@ const isIOSWebView = () => {
 
 const USE_NATIVE_BRIDGE = isIOSWebView() || (window.isNativeApp && window.isNativeApp());
 const RELAY_URL = `ws://${location.hostname || "localhost"}:8765`;
-const MODEL_PATH = "./models/avatar.vrm";
+
+// 多 avatar — 通过 ?model=xxx 或 HUD 下拉切换。全部 GLB(TalkingHead MIT 协议),
+// 之前 VRM 路径会让 importmap 失败导致页面打不开,所以这一版只走 GLB。
+const AVATAR_BANK = {
+  brunette: "./models/avatar.glb",          // RPM 写实棕发(默认 / 首次下载)
+  blonde:   "./models/avatar_blonde.glb",   // RPM 写实金发
+  asian:    "./models/avatar_asian.glb",    // RPM 写实亚裔
+};
+const _qs = new URLSearchParams(location.search);
+const MODEL_KEY = _qs.get("model") || "brunette";
+const MODEL_PATH = AVATAR_BANK[MODEL_KEY] || AVATAR_BANK.brunette;
 const IS_GLB = MODEL_PATH.endsWith('.glb');
 
 // ---------- DOM ----------
@@ -45,9 +55,11 @@ renderer.setPixelRatio(window.devicePixelRatio);
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x1a1c20);
 
-const camera = new THREE.PerspectiveCamera(28, 1, 0.05, 100);
-camera.position.set(0, 1.4, 1.2);
-camera.lookAt(0, 1.4, 0);
+// 头部聚焦: 比原版略近一点,但不至于近到看到模型内部。
+const FACE_Y = 1.5;
+const camera = new THREE.PerspectiveCamera(26, 1, 0.05, 100);
+camera.position.set(0, FACE_Y, 0.95);
+camera.lookAt(0, FACE_Y, 0);
 
 scene.add(new THREE.HemisphereLight(0xffffff, 0x444466, 1.2));
 const dir = new THREE.DirectionalLight(0xffffff, 1.5); dir.position.set(1, 2, 1.5); scene.add(dir);
